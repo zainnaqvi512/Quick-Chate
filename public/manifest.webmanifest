@@ -1,0 +1,10 @@
+{
+  "name": "Quick Chat",
+  "short_name": "Quick Chat",
+  "description": "Fast, private messaging. Chats expire 12 hours after being read.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#38BDF8",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
