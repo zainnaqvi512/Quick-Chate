@@ -4,7 +4,7 @@ Not a production-ready release. Product contract: QUICK_CHAT_MASTER_PROMPT.md. N
 
 Implemented in source: email/password registration/login, salted scrypt, sanitized profiles, optional phone/username, configurable per-message recipient retention, delivered/view acknowledgements, atomic view-once reveal, private authenticated media, cleanup, secure TURN credential issuance and tighter message/call authorization. Existing blue responsive UI, groups, contacts, reactions, voice notes and statuses retained.
 
-Verified: 27 unit tests pass, TypeScript check passes, production build passes, fresh schema migration generated (not applied). Frontend bundle warning remains. Lint fails; original repository also has 47 lint errors. No security rules were disabled to hide failures.
+Verified: 27 unit tests pass, TypeScript check passes, production build passes, fresh schema migration generated (not applied). Lint passes with zero errors/warnings; no rules were disabled. Frontend bundle warning remains. The React review guided extraction of stable components and shared hooks, removal of redundant state-reset effects, and correction of effect dependencies.
 
 Three built-server HTTP smoke checks pass: health, SPA login route and unauthenticated private media denial. These do not verify database messaging.
 
@@ -12,7 +12,8 @@ Release blockers:
 
 - No MySQL-backed integration/concurrency tests, real two-user browser test, actual voice/video test or production verification.
 - Railway service named Quick Chat is currently a private MySQL database, not an app deployment. Credentials are redacted to the connector; no public app URL exists.
-- Account plan, credits and spending limits unverified; no billable provisioning authorized.
+- Official Railway pricing verified in COST.md; account plan, credits and spending limits remain unverified. No billable provisioning authorized.
+- Local disposable database setup was blocked by package-manager permission restrictions. Database integration tests still need an approved execution environment.
 - Fresh-database migration is NOT safe to apply blindly over existing tables. Legacy data requires inspected upgrade/backfill and old provider-media migration.
 - Email ownership verification/password recovery unimplemented. Bearer tokens still use localStorage; production needs hardened session handling and distributed abuse controls.
 - Polling remains 2.5–5 seconds, not WebSockets. Background push, full offline PWA shell, reports/moderation and group calls absent.

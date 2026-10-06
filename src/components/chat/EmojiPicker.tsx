@@ -1,3 +1,29 @@
+function StickerSection({ title, items, pick, toggleFav }: { title: string; items: string[]; pick: (s: string) => void; toggleFav: (s: string) => void }) {
+  return items.length === 0 ? null : (
+      <div>
+        <p className="text-[11px] font-medium text-muted-foreground px-1 pb-1">{title}</p>
+        <div className="grid grid-cols-6 gap-1">
+          {items.map((s) => (
+            <button
+              key={s}
+              className="text-3xl p-1.5 rounded-lg hover:bg-accent transition-colors"
+              onClick={() => pick(s)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                toggleFav(s);
+              }}
+              aria-label={`Sticker ${s}`}
+              title="Click to send, right-click to favorite"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+
+}
+
 const EMOJI_DATA: { label: string; emojis: string[] }[] = [
   {
     label: "Smileys",
@@ -63,7 +89,7 @@ export function EmojiPicker({ onPick }: { onPick: (e: string) => void }) {
   );
 }
 
-export const QUICK_REACTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
+
 
 const STICKER_PACKS: { name: string; stickers: string[] }[] = [
   { name: "Moods", stickers: ["😎", "🥳", "🤯", "😴", "🤗", "😭", "🥺", "🤪", "😇", "🤠", "🥶", "🤩"] },
@@ -89,36 +115,13 @@ export function StickersPanel({ onPick }: { onPick: (s: string) => void }) {
     localStorage.setItem(FAV_KEY, JSON.stringify(next));
   }
 
-  const Section = ({ title, items }: { title: string; items: string[] }) =>
-    items.length === 0 ? null : (
-      <div>
-        <p className="text-[11px] font-medium text-muted-foreground px-1 pb-1">{title}</p>
-        <div className="grid grid-cols-6 gap-1">
-          {items.map((s) => (
-            <button
-              key={s}
-              className="text-3xl p-1.5 rounded-lg hover:bg-accent transition-colors"
-              onClick={() => pick(s)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                toggleFav(s);
-              }}
-              aria-label={`Sticker ${s}`}
-              title="Click to send, right-click to favorite"
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
 
   return (
     <div className="w-72 max-h-72 overflow-y-auto p-2 space-y-2" role="dialog" aria-label="Sticker picker">
-      <Section title="Recent" items={recent} />
-      <Section title="Favorites" items={favs} />
+      <StickerSection pick={pick} toggleFav={toggleFav} title="Recent" items={recent} />
+      <StickerSection pick={pick} toggleFav={toggleFav} title="Favorites" items={favs} />
       {STICKER_PACKS.map((p) => (
-        <Section key={p.name} title={p.name} items={p.stickers} />
+        <StickerSection pick={pick} toggleFav={toggleFav} key={p.name} title={p.name} items={p.stickers} />
       ))}
     </div>
   );

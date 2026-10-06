@@ -2,8 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import './index.css'
-import { TRPCProvider } from "@/providers/trpc"
-import { AuthProvider } from "@/lib/auth"
+import { TRPCProvider } from "@/providers/TRPCProvider"
+import { AuthProvider } from "@/lib/AuthProvider"
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(

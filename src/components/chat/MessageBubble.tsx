@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { formatTime } from "@/lib/format";
 import { MediaContent } from "./MediaContent";
-import { QUICK_REACTIONS } from "./EmojiPicker";
+import { QUICK_REACTIONS } from "./reactions";
 import { Check, CheckCheck, Copy, CornerUpLeft, Forward, SmilePlus, Star, Trash2 } from "lucide-react";
 
 export type ChatMessage = {

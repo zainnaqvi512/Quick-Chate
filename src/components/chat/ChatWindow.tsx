@@ -6,7 +6,7 @@ import { Avatar } from "@/components/Logo";
 import { expiryCountdown, formatLastSeen, isOnline } from "@/lib/format";
 import { MessageBubble, type ChatMessage } from "./MessageBubble";
 import { Composer } from "./Composer";
-import { useCall } from "@/components/call/CallManager";
+import { useCall } from "@/components/call/context";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,7 +71,7 @@ export function ChatWindow({
   const expired = msgsQuery.data?.expired ?? false;
   const expiresAt = msgsQuery.data?.expiresAt ?? conv?.myExpiresAt ?? null;
   const messages = (onlineConnection ? msgsQuery.data?.messages ?? [] : []).filter(m => new Date(m.expiresAt).getTime() > now) as (ChatMessage & {expirationMode: string})[];
-  const acknowledge = trpc.messages.acknowledge.useMutation();
+  const { mutate: acknowledge } = trpc.messages.acknowledge.useMutation();
   const reveal = trpc.messages.reveal.useMutation({onError: error => toast.error(error.message)});
   const expiration = trpc.conversations.setExpiration.useMutation({onSuccess: () => {convQuery.refetch(); utils.conversations.list.invalidate();}});
   useEffect(() => {
@@ -80,14 +80,14 @@ export function ChatWindow({
     const pending = incoming.filter(m => !acknowledged.current.has(`d${m.id}`));
     if (pending.length) {
       pending.forEach(m => acknowledged.current.add(`d${m.id}`));
-      acknowledge.mutate({messageIds: pending.map(m => m.id), event: "delivered"}, {onError: () => pending.forEach(m => acknowledged.current.delete(`d${m.id}`))});
+      acknowledge({messageIds: pending.map(m => m.id), event: "delivered"}, {onError: () => pending.forEach(m => acknowledged.current.delete(`d${m.id}`))});
     }
     const observer = new IntersectionObserver(entries => {
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       const ids = entries.filter(e => e.isIntersecting && e.intersectionRatio >= 0.5).map(e => Number((e.target as HTMLElement).dataset.messageId)).filter(id => incoming.some(m => m.id === id && m.expirationMode !== "after_view") && !acknowledged.current.has(`v${id}`));
       if (ids.length) {
         ids.forEach(id => acknowledged.current.add(`v${id}`));
-        acknowledge.mutate({messageIds: ids, event: "viewed"}, {onError: () => ids.forEach(id => acknowledged.current.delete(`v${id}`))});
+        acknowledge({messageIds: ids, event: "viewed"}, {onError: () => ids.forEach(id => acknowledged.current.delete(`v${id}`))});
       }
     }, {root: messageAreaRef.current, threshold: 0.5});
     const observe = () => messageAreaRef.current?.querySelectorAll("[data-message-id]").forEach(el => {observer.unobserve(el); observer.observe(el);});
@@ -95,8 +95,8 @@ export function ChatWindow({
     document.addEventListener("visibilitychange", observe);
     window.addEventListener("focus", observe);
     return () => {observer.disconnect(); document.removeEventListener("visibilitychange", observe); window.removeEventListener("focus", observe);};
-  }, [msgsQuery.data]);
-  useEffect(() => {setBeforeId(undefined); setRevealed(null); setRevealedAttachment(null); setReplyTo(null); setForwardMsg(null);}, [conversationId]);
+  }, [msgsQuery.data, acknowledge]);
+  // MainPage keys this component by conversationId, resetting conversation-local state.
 
   const react = trpc.messages.react.useMutation({
     onSuccess: () => utils.messages.list.invalidate({ conversationId }),
@@ -133,7 +133,7 @@ export function ChatWindow({
 
   const countdown = expiryCountdown(expiresAt);
   const online = conv?.otherUser?.lastSeenAt ? isOnline(conv.otherUser.lastSeenAt) : false;
-  const typingUsers = typingQuery.data ?? [];
+  const typingUsers = useMemo(() => typingQuery.data ?? [], [typingQuery.data]);
 
   const statusLine = useMemo(() => {
     if (typingUsers.length > 0) return `${typingUsers.map((t) => t.name).join(", ")} typing…`;

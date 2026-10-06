@@ -1,7 +1,6 @@
+import { Ctx, type Peer } from "./context";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useRef,
   useState,
@@ -14,7 +13,6 @@ import { formatDuration } from "@/lib/format";
 import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
 
 
-type Peer = { id: number; name: string; avatarUrl: string | null };
 type ActiveCall = {
   id: number;
   type: "voice" | "video";
@@ -24,12 +22,6 @@ type ActiveCall = {
   conversationId?: number;
 };
 
-type CallCtx = {
-  startCall: (peer: Peer, type: "voice" | "video", conversationId?: number) => void;
-};
-
-const Ctx = createContext<CallCtx>({ startCall: () => {} });
-export const useCall = () => useContext(Ctx);
 
 export function CallManager({
   me,
@@ -52,7 +44,7 @@ export function CallManager({
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const remoteRef = useRef<HTMLVideoElement | null>(null);
+  const remoteRef = useRef<HTMLMediaElement | null>(null);
   const localRef = useRef<HTMLVideoElement | null>(null);
   const lastSignalIdRef = useRef(0);
   const answeredAtRef = useRef<number | null>(null);
@@ -79,7 +71,7 @@ export function CallManager({
     }
   }, [incomingQuery.data, incoming]);
 
-  function cleanup() {
+  const cleanup = useCallback(() => {
     pcRef.current?.close();
     pcRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -92,8 +84,9 @@ export function CallManager({
     setCameraOff(false);
     setDuration(0);
     setNetState("");
+    candidateQueueRef.current = [];
     utils.calls.history.invalidate();
-  }
+  }, [utils]);
 
   async function setupPc(callId: number | null, stream: MediaStream) {
     const config = await utils.calls.iceConfig.fetch();
@@ -134,8 +127,7 @@ export function CallManager({
     return stream;
   }
 
-  const startCall = useCallback(
-    async (peer: Peer, type: "voice" | "video", conversationId?: number) => {
+  const startCall = async (peer: Peer, type: "voice" | "video", conversationId?: number) => {
       try {
         if (!conversationId) throw new Error('Open a direct conversation before calling.');
         const stream = await getMedia(type === "video");
@@ -156,13 +148,11 @@ export function CallManager({
           signalMut.mutate({ callId: res.id, kind: "candidate", payload: JSON.stringify(c.toJSON()) });
         }
         candidateQueueRef.current = [];
-      } catch (e: any) {
-        alert(e?.message || "Could not start call (check microphone/camera permissions)");
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "Could not start call (check microphone/camera permissions)");
         cleanup();
       }
-    },
-    [startMut, signalMut],
-  );
+    };
 
   // Caller: poll for answer / status
   const callStateQuery = trpc.calls.get.useQuery(
@@ -183,7 +173,7 @@ export function CallManager({
     if ((data.status === "ended" || data.status === "rejected" || data.status === "missed") && c.status !== "ended") {
       cleanup();
     }
-  }, [callStateQuery.data]);
+  }, [callStateQuery.data, cleanup]);
 
   // Both: poll ICE signals
   const signalsQuery = trpc.calls.signals.useQuery(
@@ -222,8 +212,8 @@ export function CallManager({
       answeredAtRef.current = Date.now();
       setCall({ id: incoming.id, type: incoming.type, isCaller: false, peer: incoming.caller, status: "ongoing" });
       setIncoming(null);
-    } catch (e: any) {
-      alert(e?.message || "Could not accept call");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not accept call");
       setIncoming(null);
     }
   }
@@ -286,9 +276,9 @@ export function CallManager({
       {call && (
         <div className="fixed inset-0 z-50 bg-slate-900 flex flex-col">
           {call.type === "video" && (
-            <video ref={remoteRef} className="absolute inset-0 w-full h-full object-cover" playsInline autoPlay />
+            <video ref={(element) => { remoteRef.current = element; }} className="absolute inset-0 w-full h-full object-cover" playsInline autoPlay />
           )}
-          {call.type === "voice" && <audio ref={remoteRef as any} autoPlay />}
+          {call.type === "voice" && <audio ref={(element) => { remoteRef.current = element; }} autoPlay />}
           <div className="relative flex-1 flex flex-col items-center justify-center gap-3 text-white">
             {call.type === "voice" && (
               <>

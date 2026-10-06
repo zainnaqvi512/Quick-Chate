@@ -221,7 +221,7 @@ export function StatusPage({ me }: { me: Me }) {
   );
 }
 
-function StatusThumb({ item, me }: { item: any; me: Me }) {
+function StatusThumb({ item, me }: { item: { type: string; bgColor: string | null; content: string | null; mediaUrl: string | null; userName: string; userAvatar: string | null }; me: Me }) {
   void me;
   if (item.type === "text") {
     return (

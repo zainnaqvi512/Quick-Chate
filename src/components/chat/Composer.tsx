@@ -18,7 +18,7 @@ import {
   X,
 } from "lucide-react";
 
-const GIPHY_KEY = (import.meta as any).env?.VITE_GIPHY_API_KEY as string | undefined;
+const GIPHY_KEY = import.meta.env.VITE_GIPHY_API_KEY as string | undefined;
 
 export function Composer({
   conversationId,
@@ -68,9 +68,11 @@ export function Composer({
     return () => clearInterval(t);
   }, [recording]);
 
-  function doSend(type: string, payload: { content?: string; mediaUrl?: string; mediaMeta?: string }) {
+  type MessageType = Parameters<typeof send.mutate>[0]["type"];
+
+  function doSend(type: MessageType, payload: { content?: string; mediaUrl?: string; mediaMeta?: string }) {
     setError("");
-    send.mutate({ conversationId, type: type as any, replyToId: replyToId ?? undefined, ...payload });
+    send.mutate({ conversationId, type, replyToId: replyToId ?? undefined, ...payload });
   }
 
   function submitText() {
@@ -96,7 +98,7 @@ export function Composer({
           contentBase64: base64,
           contentType: file.type || "application/octet-stream",
         });
-        let type = "document";
+        let type: MessageType = "document";
         if (file.type.startsWith("image/")) type = "image";
         else if (file.type.startsWith("video/")) type = "video";
         else if (file.type.startsWith("audio/")) type = "audio";
@@ -105,8 +107,8 @@ export function Composer({
           mediaMeta: JSON.stringify({ name: file.name, size: file.size, mime: file.type }),
         });
       }
-    } catch (e: any) {
-      setError(e?.message || "Upload failed");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -132,8 +134,8 @@ export function Composer({
             contentType: blob.type,
           });
           doSend("audio", { mediaUrl: res.key, mediaMeta: JSON.stringify({ duration, mime: blob.type, size: blob.size }) });
-        } catch (e: any) {
-          setError(e?.message || "Voice upload failed");
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Voice upload failed");
         } finally {
           setUploading(false);
         }
@@ -168,7 +170,7 @@ export function Composer({
       );
       const data = await res.json();
       setGifs(
-        (data.data || []).map((g: any) => ({
+        (data.data || []).map((g: { id: string; images: { fixed_height_small?: { url: string }; original: { url: string } } }) => ({
           id: g.id,
           url: g.images?.fixed_height_small?.url || g.images?.original?.url,
         })),
@@ -434,4 +436,3 @@ export function Composer({
     </div>
   );
 }
-

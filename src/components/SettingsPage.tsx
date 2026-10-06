@@ -1,3 +1,28 @@
+function NotifyRow({ label, k, n, save }: { label: string; k: keyof Me["notifySettings"]; n: Me["notifySettings"]; save: (next: Me["notifySettings"]) => void }) { return (
+    <div className="flex items-center justify-between gap-3 p-3 border rounded-xl">
+      <span className="text-sm font-medium">{label}</span>
+      <Switch checked={n[k]} onCheckedChange={(v) => save({ ...n, [k]: v })} />
+    </div>
+  );
+}
+
+function PrivacyRow({ label, k, p, save }: { label: string; k: "lastSeen" | "avatar" | "about"; p: Me["privacy"]; save: (next: Me["privacy"]) => void }) { return (
+    <div className="flex items-center justify-between gap-3 p-3 border rounded-xl">
+      <span className="text-sm font-medium">{label}</span>
+      <select
+        value={p[k]}
+        onChange={(e) => save({ ...p, [k]: e.target.value as Me['privacy']['avatar'] })}
+        className="rounded-md border bg-background px-2 py-1 text-sm"
+        aria-label={label}
+      >
+        <option value="everyone">Everyone</option>
+        <option value="contacts">My contacts</option>
+        <option value="nobody">Nobody</option>
+      </select>
+    </div>
+  );
+}
+
 import { useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { useAuth, type Me } from "@/lib/auth";
@@ -204,30 +229,16 @@ function PrivacySettings({ me, onBack }: { me: Me; onBack: () => void }) {
 
   function save(next: typeof p) {
     setP(next);
-    update.mutate(next as any);
+    update.mutate(next);
   }
 
-  const Row = ({ label, k }: { label: string; k: "lastSeen" | "avatar" | "about" }) => (
-    <div className="flex items-center justify-between gap-3 p-3 border rounded-xl">
-      <span className="text-sm font-medium">{label}</span>
-      <select
-        value={p[k]}
-        onChange={(e) => save({ ...p, [k]: e.target.value })}
-        className="rounded-md border bg-background px-2 py-1 text-sm"
-        aria-label={label}
-      >
-        <option value="everyone">Everyone</option>
-        <option value="contacts">My contacts</option>
-        <option value="nobody">Nobody</option>
-      </select>
-    </div>
-  );
+
 
   return (
     <SubPage title="Privacy" onBack={onBack}>
-      <Row label="Last seen & online" k="lastSeen" />
-      <Row label="Profile photo" k="avatar" />
-      <Row label="About" k="about" />
+      <PrivacyRow p={p} save={save} label="Last seen & online" k="lastSeen" />
+      <PrivacyRow p={p} save={save} label="Profile photo" k="avatar" />
+      <PrivacyRow p={p} save={save} label="About" k="about" />
       <div className="flex items-center justify-between gap-3 p-3 border rounded-xl">
         <span className="text-sm font-medium">Read receipts</span>
         <Switch checked={p.readReceipts} onCheckedChange={(v) => save({ ...p, readReceipts: v })} />
@@ -256,18 +267,13 @@ function NotifySettings({ me, onBack }: { me: Me; onBack: () => void }) {
     setN(next);
     update.mutate(next);
   }
-  const Row = ({ label, k }: { label: string; k: keyof typeof n }) => (
-    <div className="flex items-center justify-between gap-3 p-3 border rounded-xl">
-      <span className="text-sm font-medium">{label}</span>
-      <Switch checked={n[k]} onCheckedChange={(v) => save({ ...n, [k]: v })} />
-    </div>
-  );
+
   return (
     <SubPage title="Notifications" onBack={onBack}>
-      <Row label="Message notifications" k="messages" />
-      <Row label="Group notifications" k="groups" />
-      <Row label="Call notifications" k="calls" />
-      <Row label="Notification sounds" k="sounds" />
+      <NotifyRow n={n} save={save} label="Message notifications" k="messages" />
+      <NotifyRow n={n} save={save} label="Group notifications" k="groups" />
+      <NotifyRow n={n} save={save} label="Call notifications" k="calls" />
+      <NotifyRow n={n} save={save} label="Notification sounds" k="sounds" />
     </SubPage>
   );
 }
