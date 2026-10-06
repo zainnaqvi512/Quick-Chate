@@ -132,8 +132,8 @@ export default function MainPage() {
             <Logo size={72} />
             <h2 className="text-2xl font-semibold text-sky-600 dark:text-sky-400">Quick Chat for Web</h2>
             <p className="text-sm text-muted-foreground max-w-sm">
-              Send and receive messages in real time. Conversations remain available for 12 hours after you read
-              them — then they're gone for good.
+              Messages refresh automatically. Choose how long new messages remain after viewing.
+              Screenshots and external copies cannot be prevented. This version is not end-to-end encrypted.
             </p>
           </div>
         )}

@@ -237,10 +237,9 @@ function StatusThumb({ item, me }: { item: any; me: Me }) {
 }
 
 function StatusMedia({ url, type }: { url: string | null; type: string }) {
-  const isKey = !!url && !/^https?:/.test(url);
-  const q = trpc.media.url.useQuery({ key: url ?? "" }, { enabled: isKey });
-  const src = isKey ? q.data?.url : url;
+  const {url:src} = usePrivateMedia(url);
   if (!src) return <div className="h-48 flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin" /></div>;
   if (type === "video") return <video src={src} controls className="w-full rounded-xl" />;
   return <img src={src} alt="status" className="w-full rounded-xl" />;
 }
+import { usePrivateMedia } from '@/lib/media';

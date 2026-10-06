@@ -5,7 +5,18 @@ import { getDb } from "./queries/connection";
 import { sessions, users, type User } from "../db/schema";
 import { publicQuery } from "./middleware";
 
-const SECRET = process.env.APP_SECRET || process.env.JWT_SECRET || "quick-chat-dev-secret";
+// OTP development secret is random per process, never a predictable production fallback.
+const SECRET = process.env.APP_SECRET || process.env.JWT_SECRET || crypto.randomBytes(32).toString("hex");
+export function safeUser(user: User) {
+  const { passwordHash: _passwordHash, ...safe } = user;
+  void _passwordHash;
+  return safe;
+}
+export function assertOtpDevelopmentEnabled() {
+  if (process.env.NODE_ENV === "production" || process.env.OTP_PROVIDER !== "dev") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "SMS sign-in is unavailable. Use email and password." });
+  }
+}
 
 export function sha256(input: string): string {
   return crypto.createHash("sha256").update(input).digest("hex");
@@ -48,7 +59,7 @@ export async function destroySession(token: string) {
 
 const lastSeenWriteCache = new Map<number, number>();
 
-export async function getUserFromRequest(req: Request): Promise<{ user: User; token: string } | null> {
+export async function getUserFromRequest(req: Request): Promise<{ user: ReturnType<typeof safeUser>; token: string } | null> {
   const auth = req.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!token) return null;
@@ -70,7 +81,7 @@ export async function getUserFromRequest(req: Request): Promise<{ user: User; to
     lastSeenWriteCache.set(user.id, Date.now());
     db.update(users).set({ lastSeenAt: new Date() }).where(eq(users.id, user.id)).catch(() => {});
   }
-  return { user, token };
+  return { user: safeUser(user), token };
 }
 
 /** Authenticated procedure: requires `Authorization: Bearer <token>`. */

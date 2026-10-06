@@ -1,14 +1,9 @@
-import { useState } from "react";
-import { trpc } from "@/providers/trpc";
+import { usePrivateMedia } from "@/lib/media";
 import { formatBytes, formatDuration } from "@/lib/format";
-import { Download, FileText, Loader2, MapPin, Pause, Play } from "lucide-react";
+import { Download, FileText, Loader2, MapPin } from "lucide-react";
 
 function useMediaUrl(mediaUrl: string | null) {
-  const isKey = !!mediaUrl && !/^https?:\/\//.test(mediaUrl) && !mediaUrl.startsWith("data:");
-  const q = trpc.media.url.useQuery({ key: mediaUrl ?? "" }, { enabled: isKey, staleTime: 8 * 60_000 });
-  if (!mediaUrl) return { url: null, loading: false };
-  if (!isKey) return { url: mediaUrl, loading: false };
-  return { url: q.data?.url ?? null, loading: q.isLoading };
+  return usePrivateMedia(mediaUrl);
 }
 
 export function MediaContent({
@@ -134,40 +129,15 @@ export function MediaContent({
 }
 
 function AudioPlayer({ url, duration }: { url: string | null; duration?: number }) {
-  const [playing, setPlaying] = useState(false);
-  const [audio] = useState(() => (url ? new Audio(url) : null));
-  if (audio && url && !audio.src) audio.src = url;
   return (
     <div className="flex items-center gap-2 min-w-[180px]">
-      <button
-        aria-label={playing ? "Pause voice message" : "Play voice message"}
-        className="h-9 w-9 rounded-full bg-sky-500 text-white flex items-center justify-center shrink-0 disabled:opacity-50"
-        disabled={!url}
-        onClick={() => {
-          if (!audio || !url) return;
-          if (audio.src !== url) audio.src = url;
-          if (playing) {
-            audio.pause();
-          } else {
-            audio.onended = () => setPlaying(false);
-            audio.play();
-          }
-          setPlaying(!playing);
-        }}
-      >
-        {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-      </button>
-      <div className="flex items-end gap-[2px] h-6" aria-hidden>
-        {[6, 12, 18, 10, 16, 8, 14, 20, 9, 15, 7, 12].map((h, i) => (
-          <span key={i} className={`w-[3px] rounded ${playing ? "bg-sky-500 animate-pulse" : "bg-current opacity-50"}`} style={{ height: h }} />
-        ))}
-      </div>
+      {url ? <audio key={url} src={url} controls preload="metadata" aria-label="Voice message" className="max-w-full" /> : <span>Audio unavailable</span>}
       {duration ? <span className="text-xs opacity-70">{formatDuration(duration)}</span> : null}
     </div>
   );
 }
 
-function safeParse(s: string): Record<string, any> {
+function safeParse(s: string): {name?:string;size?:number;mime?:string;duration?:number;lat?:number;lng?:number;phone?:string} {
   try {
     return JSON.parse(s);
   } catch {

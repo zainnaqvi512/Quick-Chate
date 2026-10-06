@@ -1,7 +1,7 @@
 {
   "name": "Quick Chat",
   "short_name": "Quick Chat",
-  "description": "Fast, private messaging. Chats expire 12 hours after being read.",
+  "description": "Quick Chat with configurable disappearing messages. Not end-to-end encrypted.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F8FAFC",

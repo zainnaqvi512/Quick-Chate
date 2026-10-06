@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import type { Me } from "@/lib/auth";
@@ -34,15 +35,29 @@ export function ChatWindow({
   onClose: () => void;
 }) {
   const utils = trpc.useUtils();
+  const [now, setNow] = useState(() => Date.now());
+  const [onlineConnection, setOnlineConnection] = useState(navigator.onLine);
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()),1000);
+    const network = () => {setOnlineConnection(navigator.onLine);setNow(Date.now());};
+    window.addEventListener('online',network);window.addEventListener('offline',network);
+    return () => {clearInterval(tick);window.removeEventListener('online',network);window.removeEventListener('offline',network);};
+  }, []);
+  const [beforeId, setBeforeId] = useState<number | undefined>();
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const messageAreaRef = useRef<HTMLDivElement>(null);
+  const [revealedAttachment, setRevealedAttachment] = useState<{url:string;contentType:string;fileName:string} | null>(null);
+  useEffect(() => () => {if (revealedAttachment) URL.revokeObjectURL(revealedAttachment.url);}, [revealedAttachment]);
+  const [revealed, setRevealed] = useState<ChatMessage | null>(null);
+  const acknowledged = useRef(new Set<string>());
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastCountRef = useRef(0);
 
   const convQuery = trpc.conversations.get.useQuery({ id: conversationId }, { refetchInterval: 5000 });
   const msgsQuery = trpc.messages.list.useQuery(
-    { conversationId },
+    { conversationId, beforeId },
     { refetchInterval: 2500 },
   );
   const typingQuery = trpc.conversations.typingList.useQuery(
@@ -55,7 +70,33 @@ export function ChatWindow({
   const conv = convQuery.data;
   const expired = msgsQuery.data?.expired ?? false;
   const expiresAt = msgsQuery.data?.expiresAt ?? conv?.myExpiresAt ?? null;
-  const messages = (msgsQuery.data?.messages ?? []) as ChatMessage[];
+  const messages = (onlineConnection ? msgsQuery.data?.messages ?? [] : []).filter(m => new Date(m.expiresAt).getTime() > now) as (ChatMessage & {expirationMode: string})[];
+  const acknowledge = trpc.messages.acknowledge.useMutation();
+  const reveal = trpc.messages.reveal.useMutation({onError: error => toast.error(error.message)});
+  const expiration = trpc.conversations.setExpiration.useMutation({onSuccess: () => {convQuery.refetch(); utils.conversations.list.invalidate();}});
+  useEffect(() => {
+    const data = msgsQuery.data?.messages ?? [];
+    const incoming = data.filter(m => !m.mine);
+    const pending = incoming.filter(m => !acknowledged.current.has(`d${m.id}`));
+    if (pending.length) {
+      pending.forEach(m => acknowledged.current.add(`d${m.id}`));
+      acknowledge.mutate({messageIds: pending.map(m => m.id), event: "delivered"}, {onError: () => pending.forEach(m => acknowledged.current.delete(`d${m.id}`))});
+    }
+    const observer = new IntersectionObserver(entries => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      const ids = entries.filter(e => e.isIntersecting && e.intersectionRatio >= 0.5).map(e => Number((e.target as HTMLElement).dataset.messageId)).filter(id => incoming.some(m => m.id === id && m.expirationMode !== "after_view") && !acknowledged.current.has(`v${id}`));
+      if (ids.length) {
+        ids.forEach(id => acknowledged.current.add(`v${id}`));
+        acknowledge.mutate({messageIds: ids, event: "viewed"}, {onError: () => ids.forEach(id => acknowledged.current.delete(`v${id}`))});
+      }
+    }, {root: messageAreaRef.current, threshold: 0.5});
+    const observe = () => messageAreaRef.current?.querySelectorAll("[data-message-id]").forEach(el => {observer.unobserve(el); observer.observe(el);});
+    observe();
+    document.addEventListener("visibilitychange", observe);
+    window.addEventListener("focus", observe);
+    return () => {observer.disconnect(); document.removeEventListener("visibilitychange", observe); window.removeEventListener("focus", observe);};
+  }, [msgsQuery.data]);
+  useEffect(() => {setBeforeId(undefined); setRevealed(null); setRevealedAttachment(null); setReplyTo(null); setForwardMsg(null);}, [conversationId]);
 
   const react = trpc.messages.react.useMutation({
     onSuccess: () => utils.messages.list.invalidate({ conversationId }),
@@ -78,6 +119,7 @@ export function ChatWindow({
   });
   const block = trpc.users.block.useMutation();
   const forward = trpc.messages.send.useMutation({
+    onError: error => toast.error(error.message),
     onSuccess: () => utils.conversations.list.invalidate(),
   });
 
@@ -237,6 +279,13 @@ export function ChatWindow({
         </div>
       </header>
 
+      <div className="px-4 py-2 border-b bg-sky-50 dark:bg-sky-950 text-xs flex flex-wrap gap-2 items-center">
+        <label htmlFor="message-timer">Disappear after recipient views:</label>
+        <select id="message-timer" className="bg-background rounded border px-2 py-1" value={conv.expirationMode} disabled={expiration.isPending || (conv.type === "group" && conv.myRole === "member")} onChange={e => expiration.mutate({id: conversationId, mode: e.target.value as "24h"|"12h"|"1h"|"after_view"})}>
+          <option value="24h">24 hours</option><option value="12h">12 hours</option><option value="1h">1 hour</option><option value="after_view">View once</option>
+        </select>
+        <span className="text-muted-foreground">Applies to new messages. Unread content expires after 7 days.</span>
+      </div>
       {/* Countdown strip (mobile) */}
       {!expired && countdown && (
         <div className="sm:hidden text-center text-[11px] py-1 bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 flex items-center justify-center gap-1">
@@ -250,7 +299,7 @@ export function ChatWindow({
           <TimerOff className="h-12 w-12 text-muted-foreground" />
           <h3 className="text-lg font-semibold">This chat has expired.</h3>
           <p className="text-sm text-muted-foreground max-w-xs">
-            Quick Chat conversations are available for 12 hours after being read. Messages and media in this
+            Messages use the disappearance timer selected when sent. Expired content in this
             conversation are no longer accessible.
           </p>
           <Button variant="outline" onClick={onClose}>
@@ -258,7 +307,7 @@ export function ChatWindow({
           </Button>
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto py-3 chat-bg min-h-0" aria-live="polite">
+        <div ref={messageAreaRef} className="flex-1 overflow-y-auto py-3 chat-bg min-h-0" aria-live="polite">
           {msgsQuery.isLoading && (
             <div className="flex justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-sky-500" />
@@ -269,12 +318,20 @@ export function ChatWindow({
               <p className="text-sm text-muted-foreground max-w-xs">
                 No messages yet. Say hello! 👋
                 <br />
-                <span className="text-xs">The 12-hour timer starts when this chat is first read.</span>
+                <span className="text-xs">Each message starts its timer when its recipient sees it.</span>
               </p>
             </div>
           )}
+          <div className="flex justify-center gap-2 p-2">
+            {msgsQuery.data?.nextCursor && <Button size="sm" variant="outline" onClick={() => setBeforeId(msgsQuery.data!.nextCursor!)}>Older messages</Button>}
+            {beforeId && <Button size="sm" variant="outline" onClick={() => setBeforeId(undefined)}>Back to latest</Button>}
+          </div>
           {messages.map((m) => (
-            <MessageBubble
+            <div key={m.id} data-message-id={m.id}>
+            {m.expirationMode === "after_view" && !m.mine ? <button className="m-4 rounded-xl bg-card border px-5 py-4 text-sm" disabled={reveal.isPending} onClick={() => {if (document.visibilityState !== "visible") return; reveal.mutate({messageId:m.id},{onSuccess: body => {setRevealed({...m,...body}); if (body.attachment) {
+                      const bytes = Uint8Array.from(atob(body.attachment.base64), c => c.charCodeAt(0));
+                      setRevealedAttachment({url:URL.createObjectURL(new Blob([bytes],{type:body.attachment.contentType})),contentType:body.attachment.contentType,fileName:body.attachment.fileName});
+                    } utils.messages.list.invalidate({conversationId});}});}}>Open view-once {m.type} · disappears after closing</button> : <MessageBubble
               key={m.id}
               msg={m}
               isGroup={conv.type === "group"}
@@ -285,12 +342,21 @@ export function ChatWindow({
                 if (confirm("Delete this message for everyone?")) del.mutate({ messageId: msg.id });
               }}
               onForward={(msg) => setForwardMsg(msg)}
-            />
+            />}
+            </div>
           ))}
           <div ref={bottomRef} />
         </div>
       )}
 
+      <Dialog open={revealed !== null} onOpenChange={open => {if (!open) {setRevealed(null); setRevealedAttachment(null);}}}>
+        <DialogContent><DialogHeader><DialogTitle>View once</DialogTitle></DialogHeader>
+          {revealed?.content && <p className="whitespace-pre-wrap break-words">{revealed.content}</p>}
+          {revealedAttachment && (revealedAttachment.contentType.startsWith("image/") ? <img src={revealedAttachment.url} alt="View-once attachment" className="max-h-[65vh] object-contain"/> : revealedAttachment.contentType.startsWith("video/") ? <video src={revealedAttachment.url} controls className="max-h-[65vh]"/> : revealedAttachment.contentType.startsWith("audio/") ? <audio src={revealedAttachment.url} controls/> : <p>View-once document received ({revealedAttachment.fileName}). Document preview is not supported; ask the sender to use a timed message.</p>)}
+          <p className="text-xs text-muted-foreground">This content cannot be reopened after closing. Screenshots and external copies cannot be prevented.</p>
+          <Button onClick={() => {setRevealed(null); setRevealedAttachment(null);}}>Close and discard</Button>
+        </DialogContent>
+      </Dialog>
       {/* Reply preview */}
       {replyTo && !expired && (
         <div className="flex items-center gap-2 px-4 py-2 border-t bg-card">
@@ -317,7 +383,7 @@ export function ChatWindow({
           contacts={(contactsQuery.data ?? []).map((c) => ({
             userId: c.user.id,
             name: c.alias || c.user.name,
-            phone: c.user.phone,
+            phone: c.user.phone || '',
           }))}
         />
       )}
@@ -341,7 +407,7 @@ export function ChatWindow({
                     if (!forwardMsg) return;
                     forward.mutate({
                       conversationId: c.id,
-                      type: forwardMsg.type as any,
+                      forwardFromId: forwardMsg.id,
                       content: forwardMsg.content ?? undefined,
                       mediaUrl: forwardMsg.mediaUrl ?? undefined,
                       mediaMeta: forwardMsg.mediaMeta ?? undefined,

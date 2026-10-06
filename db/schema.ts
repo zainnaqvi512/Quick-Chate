@@ -17,7 +17,10 @@ export const users = mysqlTable(
   "users",
   {
     id: serial("id").primaryKey(),
-    phone: varchar("phone", { length: 32 }).notNull().unique(), // E.164 normalized
+    phone: varchar("phone", { length: 32 }).unique(), // Optional E.164 phone
+    email: varchar("email", { length: 254 }).unique(),
+    passwordHash: varchar("password_hash", { length: 255 }),
+    username: varchar("username", { length: 32 }).unique(),
     countryCode: varchar("country_code", { length: 8 }).notNull().default("+1"),
     name: varchar("name", { length: 128 }).notNull().default(""),
     avatarUrl: text("avatar_url"),
@@ -92,6 +95,7 @@ export const conversations = mysqlTable(
     id: serial("id").primaryKey(),
     type: mysqlEnum("type", ["direct", "group"]).notNull().default("direct"),
     directKey: varchar("direct_key", { length: 80 }).unique(), // "minId:maxId" for direct dedup
+    expirationMode: varchar("expiration_mode", { length: 16 }).notNull().default("24h"),
     name: varchar("name", { length: 128 }),
     description: varchar("description", { length: 512 }),
     avatarUrl: text("avatar_url"),
@@ -149,6 +153,9 @@ export const messages = mysqlTable(
     mediaUrl: text("media_url"),
     mediaMeta: text("media_meta"), // JSON: { name, size, mime, duration, width, height, lat, lng, ... }
     replyToId: bigint("reply_to_id", { mode: "number", unsigned: true }),
+    expirationMode: varchar("expiration_mode", { length: 16 }).notNull().default("24h"),
+    retentionDeadline: timestamp("retention_deadline").notNull(),
+    editedAt: timestamp("edited_at"),
     deletedForEveryone: boolean("deleted_for_everyone").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     deletedAt: timestamp("deleted_at"),
@@ -156,8 +163,19 @@ export const messages = mysqlTable(
   (t) => [
     index("idx_msg_conv_created").on(t.conversationId, t.createdAt),
     index("idx_msg_sender").on(t.senderId),
+    index("idx_msg_retention").on(t.retentionDeadline),
   ],
 );
+
+export const messageReceipts = mysqlTable("message_receipts", {
+  id: serial("id").primaryKey(),
+  messageId: bigint("message_id", { mode: "number", unsigned: true }).notNull(),
+  userId: bigint("user_id", { mode: "number", unsigned: true }).notNull(),
+  deliveredAt: timestamp("delivered_at"),
+  viewedAt: timestamp("viewed_at"),
+  expiresAt: timestamp("expires_at"),
+  consumedAt: timestamp("consumed_at"),
+}, (t) => [uniqueIndex("uq_receipt_pair").on(t.messageId, t.userId), index("idx_receipt_expiry").on(t.expiresAt)]);
 
 export const messageReactions = mysqlTable(
   "message_reactions",

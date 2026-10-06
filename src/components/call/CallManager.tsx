@@ -13,16 +13,6 @@ import { Avatar } from "@/components/Logo";
 import { formatDuration } from "@/lib/format";
 import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from "lucide-react";
 
-const STUN_URL = (import.meta as any).env?.VITE_STUN_URL || "stun:stun.l.google.com:19302";
-const TURN_URL = (import.meta as any).env?.VITE_TURN_URL as string | undefined;
-const TURN_USER = (import.meta as any).env?.VITE_TURN_USERNAME as string | undefined;
-const TURN_PASS = (import.meta as any).env?.VITE_TURN_PASSWORD as string | undefined;
-
-function rtcConfig(): RTCConfiguration {
-  const servers: RTCIceServer[] = [{ urls: STUN_URL }];
-  if (TURN_URL && TURN_USER) servers.push({ urls: TURN_URL, username: TURN_USER, credential: TURN_PASS });
-  return { iceServers: servers };
-}
 
 type Peer = { id: number; name: string; avatarUrl: string | null };
 type ActiveCall = {
@@ -105,8 +95,9 @@ export function CallManager({
     utils.calls.history.invalidate();
   }
 
-  function setupPc(callId: number | null, stream: MediaStream) {
-    const pc = new RTCPeerConnection(rtcConfig());
+  async function setupPc(callId: number | null, stream: MediaStream) {
+    const config = await utils.calls.iceConfig.fetch();
+    const pc = new RTCPeerConnection({iceServers:config.iceServers});
     stream.getTracks().forEach((t) => pc.addTrack(t, stream));
     pc.onicecandidate = (e) => {
       if (!e.candidate) return;
@@ -146,8 +137,9 @@ export function CallManager({
   const startCall = useCallback(
     async (peer: Peer, type: "voice" | "video", conversationId?: number) => {
       try {
+        if (!conversationId) throw new Error('Open a direct conversation before calling.');
         const stream = await getMedia(type === "video");
-        const pc = setupPc(null, stream);
+        const pc = await setupPc(null, stream);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         // wait briefly for initial ICE gathering so early candidates are included
@@ -222,7 +214,7 @@ export function CallManager({
     if (!incoming || !incoming.caller || !incoming.offerSdp) return;
     try {
       const stream = await getMedia(incoming.type === "video");
-      const pc = setupPc(incoming.id, stream);
+      const pc = await setupPc(incoming.id, stream);
       await pc.setRemoteDescription(JSON.parse(incoming.offerSdp));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
@@ -356,4 +348,3 @@ export function CallManager({
     </Ctx.Provider>
   );
 }
-

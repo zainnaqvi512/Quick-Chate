@@ -1,205 +1,60 @@
-import { useEffect, useRef, useState } from "react";
+import { useState, type FormEvent } from "react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/lib/auth";
-import { COUNTRIES } from "@/lib/countries";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ChevronDown, Loader2, ShieldCheck } from "lucide-react";
-
-type Step = "phone" | "otp";
+import { Loader2, MessageCircle, Clock3 } from "lucide-react";
 
 export default function AuthPage() {
   const { setAuth } = useAuth();
-  const [step, setStep] = useState<Step>("phone");
-  const [country, setCountry] = useState(COUNTRIES[0]);
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [devOtp, setDevOtp] = useState<string | null>(null);
+  const [register, setRegister] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [error, setError] = useState("");
-  const [cooldown, setCooldown] = useState(0);
-  const [countryOpen, setCountryOpen] = useState(false);
-  const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-  const requestOtp = trpc.auth.requestOtp.useMutation({
-    onSuccess: (res) => {
-      setStep("otp");
-      setError("");
-      setCooldown(45);
-      setDevOtp(res.devOtp ?? null);
-      setTimeout(() => otpRefs.current[0]?.focus(), 100);
-    },
-    onError: (e) => setError(e.message),
-  });
-
-  const verifyOtp = trpc.auth.verifyOtp.useMutation({
-    onSuccess: (res) => {
-      // Session created; profile completion is gated in the main app.
-      setAuth(res.token);
-    },
-    onError: (e) => setError(e.message),
-  });
-
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setInterval(() => setCooldown((c) => c - 1), 1000);
-    return () => clearInterval(t);
-  }, [cooldown]);
-
-  function sendOtp() {
-    if (!phone.replace(/\D/g, "")) {
-      setError("Please enter your phone number");
-      return;
-    }
+  const login = trpc.auth.login.useMutation({ onSuccess: (r) => setAuth(r.token), onError: (e) => setError(e.message) });
+  const signup = trpc.auth.register.useMutation({ onSuccess: (r) => setAuth(r.token), onError: (e) => setError(e.message) });
+  const pending = login.isPending || signup.isPending;
+  function submit(event: FormEvent) {
+    event.preventDefault();
     setError("");
-    requestOtp.mutate({ countryCode: country.dial, phone });
+    if (register) signup.mutate({ email, password, name, username });
+    else login.mutate({ email, password });
   }
-
-  function submitOtp(code: string) {
-    setError("");
-    verifyOtp.mutate({ countryCode: country.dial, phone, otp: code });
-  }
-
   return (
-    <div className="min-h-dvh flex flex-col items-center justify-center bg-gradient-to-b from-sky-50 to-background dark:from-slate-900 dark:to-background p-6">
-      <div className="w-full max-w-md">
-        <div className="flex flex-col items-center mb-8">
-          <Logo size={64} />
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-sky-600 dark:text-sky-400">Quick Chat</h1>
-          <p className="mt-1 text-sm text-muted-foreground text-center">
-            Fast, private messaging. Chats expire 12 hours after being read.
-          </p>
-        </div>
-
-        <div className="bg-card border rounded-2xl shadow-lg p-6 space-y-5">
-          {step === "phone" && (
-            <>
-              <h2 className="text-lg font-semibold">Your phone number</h2>
-              <p className="text-sm text-muted-foreground -mt-3">
-                We'll send you a 6-digit verification code.
-              </p>
-              <div className="relative">
-                <button
-                  type="button"
-                  aria-label="Select country"
-                  onClick={() => setCountryOpen((o) => !o)}
-                  className="w-full flex items-center justify-between rounded-lg border px-3 py-2.5 text-sm hover:bg-accent transition-colors"
-                >
-                  <span>
-                    {country.flag} {country.name} ({country.dial})
-                  </span>
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                </button>
-                {countryOpen && (
-                  <div className="absolute z-20 mt-1 w-full max-h-56 overflow-auto rounded-lg border bg-popover shadow-md">
-                    {COUNTRIES.map((c) => (
-                      <button
-                        key={c.name}
-                        className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
-                        onClick={() => {
-                          setCountry(c);
-                          setCountryOpen(false);
-                        }}
-                      >
-                        {c.flag} {c.name} ({c.dial})
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="rounded-lg border px-3 py-2.5 text-sm bg-muted text-muted-foreground">
-                  {country.dial}
-                </span>
-                <Input
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/[^\d\s-]/g, ""))}
-                  placeholder="3XX XXXXXXX"
-                  inputMode="tel"
-                  aria-label="Phone number"
-                  onKeyDown={(e) => e.key === "Enter" && sendOtp()}
-                  className="py-2.5"
-                />
-              </div>
-              <Button
-                className="w-full bg-sky-500 hover:bg-sky-600 text-white"
-                onClick={sendOtp}
-                disabled={requestOtp.isPending}
-              >
-                {requestOtp.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Send code
-              </Button>
-            </>
-          )}
-
-          {step === "otp" && (
-            <>
-              <h2 className="text-lg font-semibold">Enter verification code</h2>
-              <p className="text-sm text-muted-foreground -mt-3">
-                Sent to {country.dial} {phone}
-              </p>
-              {devOtp && (
-                <div className="rounded-lg bg-sky-50 dark:bg-sky-950 border border-sky-200 dark:border-sky-800 px-3 py-2 text-sm text-sky-700 dark:text-sky-300">
-                  Development mode — your code is <b className="font-mono tracking-widest">{devOtp}</b>
-                </div>
-              )}
-              <div className="flex gap-2 justify-center" role="group" aria-label="Verification code">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <input
-                    key={i}
-                    ref={(el) => {
-                      otpRefs.current[i] = el;
-                    }}
-                    value={otp[i] || ""}
-                    inputMode="numeric"
-                    maxLength={1}
-                    aria-label={`Digit ${i + 1}`}
-                    className="w-11 h-13 text-center text-xl font-mono rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-sky-500 h-12"
-                    onChange={(e) => {
-                      const v = e.target.value.replace(/\D/g, "");
-                      const next = (otp.slice(0, i) + v + otp.slice(i + 1)).slice(0, 6);
-                      setOtp(next);
-                      if (v && i < 5) otpRefs.current[i + 1]?.focus();
-                      if (next.length === 6) submitOtp(next);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Backspace" && !otp[i] && i > 0) otpRefs.current[i - 1]?.focus();
-                    }}
-                  />
-                ))}
-              </div>
-              {verifyOtp.isPending && (
-                <div className="flex justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
-                </div>
-              )}
-              <div className="flex items-center justify-between text-sm">
-                <button className="text-muted-foreground hover:underline" onClick={() => setStep("phone")}>
-                  Change number
-                </button>
-                <button
-                  className="text-sky-600 dark:text-sky-400 hover:underline disabled:opacity-50"
-                  disabled={cooldown > 0 || requestOtp.isPending}
-                  onClick={sendOtp}
-                >
-                  {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
-                </button>
-              </div>
-            </>
-          )}
-
-          {error && (
-            <p className="text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-
-        <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          <ShieldCheck className="h-3.5 w-3.5 text-sky-500" />
-          Codes are hashed and expire after 10 minutes.
-        </p>
+    <main className="min-h-dvh bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-5 sm:p-10">
+      <div className="w-full max-w-5xl grid md:grid-cols-2 rounded-3xl overflow-hidden border bg-card shadow-xl">
+        <section className="bg-blue-600 text-white p-8 md:p-12 flex flex-col justify-between gap-10">
+          <div className="flex items-center gap-3"><Logo size={42}/><span className="text-xl font-semibold tracking-tight">Quick Chat</span></div>
+          <div>
+            <span className="text-blue-100 text-xs tracking-widest uppercase">A little less permanent</span>
+            <h1 className="mt-4 text-4xl md:text-5xl font-semibold leading-tight tracking-tight">Say hello.<br/>Stay in the moment.</h1>
+            <p className="mt-5 text-blue-100 leading-relaxed">A simple place for your everyday conversations, with disappearing messages on your terms.</p>
+          </div>
+          <div className="space-y-3 text-sm text-blue-100">
+            <p className="flex items-center gap-3"><MessageCircle size={18}/>One-to-one chats and groups</p>
+            <p className="flex items-center gap-3"><Clock3 size={18}/>Choose when your messages disappear</p>
+          </div>
+        </section>
+        <section className="p-8 md:p-12 flex flex-col justify-center">
+          <h2 className="text-2xl font-semibold tracking-tight">{register ? "Create your account" : "Welcome back"}</h2>
+          <p className="text-sm text-muted-foreground mt-2 mb-7">{register ? "Choose a username so friends can find you." : "Sign in to your Quick Chat account."}</p>
+          <form onSubmit={submit} className="space-y-4">
+            {register && <>
+              <div><label htmlFor="name" className="text-sm font-medium">Your name</label><Input id="name" autoComplete="name" value={name} onChange={e => setName(e.target.value)} required maxLength={128} className="mt-1.5"/></div>
+              <div><label htmlFor="username" className="text-sm font-medium">Username</label><Input id="username" autoComplete="username" value={username} onChange={e => setUsername(e.target.value.toLowerCase())} required pattern="[a-z][a-z0-9_]{2,31}" title="3–32 letters, numbers or underscores; start with a letter" maxLength={32} className="mt-1.5"/><p className="text-xs text-muted-foreground mt-1">3–32 characters; start with a letter.</p></div>
+            </>}
+            <div><label htmlFor="email" className="text-sm font-medium">Email address</label><Input id="email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} required maxLength={254} placeholder="you@example.com" className="mt-1.5"/></div>
+            <div><label htmlFor="password" className="text-sm font-medium">Password</label><Input id="password" type="password" autoComplete={register ? "new-password" : "current-password"} value={password} onChange={e => setPassword(e.target.value)} required minLength={12} maxLength={128} className="mt-1.5"/>{register && <p className="text-xs text-muted-foreground mt-1">At least 12 characters. A unique passphrase works well.</p>}</div>
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" disabled={pending} className="w-full bg-blue-600 hover:bg-blue-700 text-white">{pending && <Loader2 size={16} className="animate-spin mr-2"/>}{register ? "Create account" : "Sign in"}</Button>
+          </form>
+          <p className="text-sm text-muted-foreground mt-6">{register ? "Already have an account?" : "New to Quick Chat?"} <button type="button" disabled={pending} onClick={() => { setRegister(!register); setError(""); }} className="text-blue-600 dark:text-blue-400 font-medium hover:underline">{register ? "Sign in" : "Create account"}</button></p>
+          <p className="mt-7 text-xs text-muted-foreground leading-relaxed">Email verification and password recovery are not available yet. Keep your password safe. Disappearing messages cannot prevent screenshots or copies.</p>
+        </section>
       </div>
-    </div>
+    </main>
   );
 }

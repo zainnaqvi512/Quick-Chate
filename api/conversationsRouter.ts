@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, gt, or } from "drizzle-orm";
+import { and, eq, gt, or, sql } from "drizzle-orm";
 import { createRouter } from "./middleware";
 import { authedQuery } from "./auth";
 import { getDb } from "./queries/connection";
@@ -9,10 +9,13 @@ import {
   conversationParticipants,
   conversations,
   messages,
+  messageReceipts,
   typingStates,
   users,
+  contacts,
 } from "../db/schema";
-import { getParticipant, markRead, participantExpired } from "./expiration";
+import { getParticipant, participantExpired } from "./expiration";
+import { EXPIRATION_MODES, getVisibleMessages, visibleMessagePredicate } from "./retention";
 import { publicUser } from "./usersRouter";
 
 async function requireMembership(convId: number, userId: number) {
@@ -49,23 +52,13 @@ async function convDisplay(conv: typeof conversations.$inferSelect, meId: number
   if (!otherId) return { title: "Unknown", avatarUrl: null, otherUser: null };
   const u = await db.select().from(users).where(eq(users.id, otherId)).limit(1);
   if (!u[0]) return { title: "Unknown", avatarUrl: null, otherUser: null };
-  const pub = publicUser(u[0], true);
-  return { title: pub.name || pub.phone, avatarUrl: pub.avatarUrl, otherUser: pub };
+  const contact = await db.select().from(contacts).where(and(eq(contacts.ownerId,otherId),eq(contacts.contactUserId,meId))).limit(1);
+  const pub = publicUser(u[0], contact.length > 0);
+  return { title: pub.name || pub.username || 'User', avatarUrl: pub.avatarUrl, otherUser: pub };
 }
 
-async function lastMessagePreview(convId: number, clearedAt: Date | null) {
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(messages)
-    .where(
-      clearedAt
-        ? and(eq(messages.conversationId, convId), gt(messages.createdAt, clearedAt))
-        : eq(messages.conversationId, convId),
-    )
-    .orderBy(desc(messages.createdAt))
-    .limit(1);
-  return rows[0] ?? null;
+async function lastMessagePreview(convId: number, userId: number) {
+  return (await getVisibleMessages(convId, userId, 1))[0] ?? null;
 }
 
 export const conversationsRouter = createRouter({
@@ -82,46 +75,16 @@ export const conversationsRouter = createRouter({
       if (!conv) continue;
       const expired = participantExpired(p);
       const display = await convDisplay(conv, ctx.user.id);
-      const last = expired ? null : await lastMessagePreview(conv.id, p.clearedAt);
-      let unread = 0;
-      if (!expired && p.lastReadAt) {
-        const unreadRows = await db
-          .select({ id: messages.id })
-          .from(messages)
-          .where(
-            and(
-              eq(messages.conversationId, conv.id),
-              gt(messages.createdAt, p.lastReadAt),
-              eq(messages.deletedForEveryone, false),
-            ),
-          );
-        unread = unreadRows.filter(() => true).length;
-        // exclude own messages
-        const ownRows = await db
-          .select({ id: messages.id })
-          .from(messages)
-          .where(
-            and(
-              eq(messages.conversationId, conv.id),
-              gt(messages.createdAt, p.lastReadAt),
-              eq(messages.senderId, ctx.user.id),
-            ),
-          );
-        unread -= ownRows.length;
-      } else if (!expired && !p.lastReadAt) {
-        const all = await db
-          .select({ id: messages.id })
-          .from(messages)
-          .where(and(eq(messages.conversationId, conv.id), eq(messages.deletedForEveryone, false)));
-        const own = await db
-          .select({ id: messages.id })
-          .from(messages)
-          .where(and(eq(messages.conversationId, conv.id), eq(messages.senderId, ctx.user.id)));
-        unread = all.length - own.length;
-      }
+      const last = expired ? null : await lastMessagePreview(conv.id, ctx.user.id);
+      const unreadRows = await db.select({id: messages.id}).from(messages).where(and(
+        eq(messages.conversationId,conv.id), visibleMessagePredicate(ctx.user.id),
+        sql`EXISTS (SELECT 1 FROM message_receipts r WHERE r.message_id = ${messages.id} AND r.user_id = ${ctx.user.id} AND r.viewed_at IS NULL)`
+      ));
+      const unread = unreadRows.length;
       result.push({
         id: conv.id,
         type: conv.type,
+      expirationMode: conv.expirationMode,
         title: display.title,
         avatarUrl: display.avatarUrl,
         otherUser: display.otherUser,
@@ -133,7 +96,7 @@ export const conversationsRouter = createRouter({
         expired,
         unread,
         lastMessage: last
-          ? { type: last.type, content: last.content, senderId: last.senderId, createdAt: last.createdAt }
+          ? { type: last.type, content: last.expirationMode === "after_view" ? "View-once message" : last.content, senderId: last.senderId, createdAt: last.createdAt }
           : null,
         createdAt: conv.createdAt,
       });
@@ -149,6 +112,7 @@ export const conversationsRouter = createRouter({
 
   createDirect: authedQuery.input(z.object({ userId: z.number() })).mutation(async ({ ctx, input }) => {
     if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot chat with yourself" });
+    if (await isBlockedBetween(ctx.user.id,input.userId)) throw new TRPCError({code:'FORBIDDEN'});
     const db = getDb();
     const target = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
     if (!target[0]) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
@@ -214,15 +178,16 @@ export const conversationsRouter = createRouter({
       const u = await db.select().from(users).where(eq(users.id, part.userId)).limit(1);
       if (u[0])
         participants.push({
-          user: publicUser(u[0], true),
+          user: publicUser(u[0], false),
           role: part.role,
-          lastReadAt: part.lastReadAt,
-          expiresAt: part.expiresAt,
+          lastReadAt: null,
+          expiresAt: null,
         });
     }
     return {
       id: conv.id,
       type: conv.type,
+      expirationMode: conv.expirationMode,
       title: display.title,
       avatarUrl: display.avatarUrl,
       description: conv.description,
@@ -238,16 +203,15 @@ export const conversationsRouter = createRouter({
     };
   }),
 
-  /** Server records the read/open event; first read starts the 12h window. */
-  read: authedQuery.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
-    const first = await requireMembership(input.id, ctx.user.id);
-    if (participantExpired(first)) {
-      return { ok: false, expired: true, expiresAt: first.expiresAt };
-    }
-    await markRead(input.id, ctx.user.id);
-    const p = await getParticipant(input.id, ctx.user.id);
-    return { ok: true, expired: false, expiresAt: p?.expiresAt ?? null };
-  }),
+  setExpiration: authedQuery.input(z.object({ id: z.number(), mode: z.enum(EXPIRATION_MODES) }))
+    .mutation(async ({ctx, input}) => {
+      const p = await requireMembership(input.id, ctx.user.id);
+      const db = getDb();
+      const [conv] = await db.select().from(conversations).where(eq(conversations.id, input.id));
+      if (conv.type === "group" && p.role === "member") throw new TRPCError({code: "FORBIDDEN", message: "Group admins set the timer"});
+      await db.update(conversations).set({ expirationMode: input.mode }).where(eq(conversations.id, input.id));
+      return {ok:true};
+    }),
 
   setFlags: authedQuery
     .input(
@@ -299,6 +263,10 @@ export const conversationsRouter = createRouter({
       const me = await requireMembership(input.id, ctx.user.id);
       if (me.role === "member") throw new TRPCError({ code: "FORBIDDEN", message: "Admins only" });
       const db = getDb();
+      const [conv] = await db.select().from(conversations).where(eq(conversations.id,input.id));
+      if (conv?.type !== "group") throw new TRPCError({code:"BAD_REQUEST"});
+      const [user] = await db.select().from(users).where(eq(users.id,input.userId));
+      if (!user) throw new TRPCError({code:"NOT_FOUND"});
       await db
         .insert(conversationParticipants)
         .values({ conversationId: input.id, userId: input.userId })
@@ -313,6 +281,15 @@ export const conversationsRouter = createRouter({
       if (me.role === "member" && input.userId !== ctx.user.id)
         throw new TRPCError({ code: "FORBIDDEN", message: "Admins only" });
       const db = getDb();
+      const [conv] = await db.select().from(conversations).where(eq(conversations.id,input.id));
+      const target = await getParticipant(input.id,input.userId);
+      if (conv?.type !== "group" || (target?.role === "owner" && me.role !== "owner")) throw new TRPCError({code:"FORBIDDEN"});
+      if (target?.role === "owner") throw new TRPCError({code:"BAD_REQUEST",message:"Owner transfer is required before leaving"});
+      // Permanent revocation for the old recipient snapshot, including later rejoin.
+      await db.update(messageReceipts).set({consumedAt:new Date(),expiresAt:new Date()}).where(and(
+        eq(messageReceipts.userId,input.userId),
+        sql`${messageReceipts.messageId} IN (SELECT id FROM messages WHERE conversation_id = ${input.id})`
+      ));
       await db
         .delete(conversationParticipants)
         .where(

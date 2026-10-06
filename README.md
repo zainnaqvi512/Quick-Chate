@@ -1,5 +1,7 @@
 # Quick Chat ⚡
 
+> **Development branch status (2026-10-06):** see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the authoritative current feature/test status. The historical overview below describes the original implementation and is not a verification report. This branch adds email/password auth and configurable per-message retention. It is not deployed or production-ready; it is not E2EE. Use [DEPLOYMENT.md](DEPLOYMENT.md) before attempting any migration.
+
 A full-stack, real-time messaging application with an original sky-blue identity — and one defining twist:
 
 > **A conversation remains accessible for only 12 hours after it is opened/read.**

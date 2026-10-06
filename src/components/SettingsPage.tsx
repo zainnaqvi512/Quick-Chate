@@ -56,10 +56,10 @@ export function SettingsPage({ me, onUpdated }: { me: Me; onUpdated: () => void 
         <div className="text-sm space-y-2">
           <p><b>Quick Chat</b> v1.0.0</p>
           <p className="text-muted-foreground">
-            Private messaging with a twist: conversations remain available for 12 hours after you read them, then
-            expire permanently — enforced by the server, not your device.
+            Choose 24 hours, 12 hours, 1 hour after viewing, or view once for new messages.
+            Unread messages have a seven-day limit. This version is not end-to-end encrypted.
           </p>
-          <p className="text-muted-foreground">Terms · Privacy Policy · Open-source licenses</p>
+          <p className="text-muted-foreground">Screenshots and external copies cannot be prevented. Cleanup retries once per minute while the server runs.</p>
         </div>
       </SubPage>
     );

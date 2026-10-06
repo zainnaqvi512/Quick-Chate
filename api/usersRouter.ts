@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { and, eq, like, ne, or } from "drizzle-orm";
 import { createRouter } from "./middleware";
-import { authedQuery, normalizePhone } from "./auth";
+import { authedQuery, normalizePhone, safeUser } from "./auth";
+import { assertOwnedMedia } from "./lib/mediaValidation";
 import { getDb } from "./queries/connection";
-import { blockedUsers, users } from "../db/schema";
+import { blockedUsers, users, contacts, sessions } from "../db/schema";
 
 export const DEFAULT_PRIVACY = {
   lastSeen: "everyone" as "everyone" | "contacts" | "nobody",
@@ -36,6 +37,7 @@ export function publicUser(u: typeof users.$inferSelect, viewerIsContact: boolea
   return {
     id: u.id,
     phone: u.phone,
+    username: u.username,
     name: u.name,
     about: allow("about") ? u.about : "",
     avatarUrl: allow("avatar") ? u.avatarUrl : null,
@@ -63,12 +65,13 @@ export const usersRouter = createRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
+      if (input.avatarUrl) await assertOwnedMedia(input.avatarUrl, ctx.user.id, 'avatar');
       await db
         .update(users)
         .set({ ...input, profileComplete: true })
         .where(eq(users.id, ctx.user.id));
       const rows = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
-      return rows[0];
+      return safeUser(rows[0]);
     }),
 
   updatePrivacy: authedQuery
@@ -118,10 +121,17 @@ export const usersRouter = createRouter({
       const nameRows = await db
         .select()
         .from(users)
-        .where(and(like(users.name, `%${q}%`), ne(users.id, ctx.user.id)))
+        .where(and(or(like(users.name, `%${q}%`), like(users.username, `%${q.replace(/^@/, '')}%`)), ne(users.id, ctx.user.id)))
         .limit(20);
       for (const r of nameRows) if (!results.find((x) => x.id === r.id)) results.push(r);
-      return results.filter((u) => u.id !== ctx.user.id).map((u) => publicUser(u, true));
+      const visible = [];
+      for (const u of results.filter((u) => u.id !== ctx.user.id)) {
+        const blocked = await db.select().from(blockedUsers).where(or(and(eq(blockedUsers.blockerId,u.id),eq(blockedUsers.blockedId,ctx.user.id)),and(eq(blockedUsers.blockerId,ctx.user.id),eq(blockedUsers.blockedId,u.id)))).limit(1);
+        if (blocked.length) continue;
+        const contact = await db.select().from(contacts).where(and(eq(contacts.ownerId,u.id),eq(contacts.contactUserId,ctx.user.id))).limit(1);
+        visible.push(publicUser(u, contact.length > 0));
+      }
+      return visible;
     }),
 
   block: authedQuery.input(z.object({ userId: z.number() })).mutation(async ({ ctx, input }) => {
@@ -152,6 +162,7 @@ export const usersRouter = createRouter({
 
   deleteAccount: authedQuery.mutation(async ({ ctx }) => {
     const db = getDb();
+    await db.delete(sessions).where(eq(sessions.userId, ctx.user.id));
     await db.delete(users).where(eq(users.id, ctx.user.id));
     return { ok: true };
   }),

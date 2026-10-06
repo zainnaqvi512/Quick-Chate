@@ -17,7 +17,7 @@ export function ContactsPage({ onOpenChat }: { onOpenChat: (id: number) => void 
   const block = trpc.users.block.useMutation();
 
   const contacts = (contactsQuery.data ?? []).filter((c) =>
-    (c.alias || c.user.name || c.user.phone).toLowerCase().includes(query.toLowerCase()),
+    (c.alias || c.user.name || c.user.username || '').toLowerCase().includes(query.toLowerCase()),
   );
 
   return (

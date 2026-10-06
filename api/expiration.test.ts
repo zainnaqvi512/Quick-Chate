@@ -1,51 +1,35 @@
 import { describe, it, expect } from "vitest";
-import { participantExpired, CHAT_WINDOW_MS } from "./expiration";
-import type { ConversationParticipant } from "../db/schema";
-
-function fakeParticipant(expiresAt: Date | null): ConversationParticipant {
-  return {
-    id: 1,
-    conversationId: 1,
-    userId: 1,
-    role: "member",
-    joinedAt: new Date(),
-    lastReadAt: null,
-    expiresAt,
-    pinned: false,
-    archived: false,
-    muted: false,
-    clearedAt: null,
-  };
-}
-
-describe("12-hour expiration (server-authoritative)", () => {
-  it("window length is exactly 12 hours", () => {
-    expect(CHAT_WINDOW_MS).toBe(12 * 3600 * 1000);
+import { viewingDeadline, retentionDeadlineForSend, receiptIsLive, UNREAD_CAP_MS } from "./retention";
+const sent = new Date("2026-10-06T00:00:00Z");
+const cap = retentionDeadlineForSend(sent);
+describe("per-recipient message expiration", () => {
+  it("unread messages have a finite seven-day cap", () => {
+    expect(cap.getTime() - sent.getTime()).toBe(7 * 24 * 3600000);
+    expect(UNREAD_CAP_MS).toBe(604800000);
+    expect(receiptIsLive({ expiresAt: null, consumedAt: null }, cap, new Date(cap.getTime() - 1))).toBe(true);
+    expect(receiptIsLive({ expiresAt: null, consumedAt: null }, cap, cap)).toBe(false);
   });
-
-  it("not expired before first read (expiresAt null)", () => {
-    expect(participantExpired(fakeParticipant(null))).toBe(false);
+  it.each([["1h", 1], ["12h", 12], ["24h", 24]] as const)("%s starts at viewing, not sending", (mode, hours) => {
+    const viewed = new Date(sent.getTime() + 10000);
+    expect(viewingDeadline(mode, viewed, cap).getTime()).toBe(viewed.getTime() + hours * 3600000);
   });
-
-  it("not expired while inside the window", () => {
-    const readAt = new Date(Date.now() - 1000); // read 1s ago
-    const expiresAt = new Date(readAt.getTime() + CHAT_WINDOW_MS);
-    expect(participantExpired(fakeParticipant(expiresAt))).toBe(false);
+  it("a late view never extends the hard cap", () => {
+    expect(viewingDeadline("24h", new Date(cap.getTime() - 1000), cap)).toEqual(cap);
   });
-
-  it("expires exactly when server time passes expiresAt", () => {
-    const readAt = new Date(Date.now() - CHAT_WINDOW_MS - 1000); // read 12h+1s ago
-    const expiresAt = new Date(readAt.getTime() + CHAT_WINDOW_MS);
-    expect(participantExpired(fakeParticipant(expiresAt))).toBe(true);
+  it("after-view consumes access at the exact acknowledgement time", () => {
+    const expiresAt = viewingDeadline("after_view", sent, cap);
+    expect(receiptIsLive({ expiresAt, consumedAt: sent }, cap, sent)).toBe(false);
   });
-
-  it("boundary: expiresAt == now counts as expired", () => {
-    expect(participantExpired(fakeParticipant(new Date(Date.now() - 1)))).toBe(true);
+  it("one group recipient expiring does not prematurely expire another", () => {
+    const a = viewingDeadline("1h", sent, cap);
+    const b = viewingDeadline("1h", new Date(sent.getTime() + 30000), cap);
+    expect(receiptIsLive({ expiresAt: a, consumedAt: null }, cap, a)).toBe(false);
+    expect(receiptIsLive({ expiresAt: b, consumedAt: null }, cap, a)).toBe(true);
   });
-
-  it("client clock manipulation is irrelevant: check uses Date.now() on server", () => {
-    // A far-future client clock cannot extend access
-    const expiresAt = new Date(Date.now() - 60_000);
-    expect(participantExpired(fakeParticipant(expiresAt))).toBe(true);
+  it("consumption overrides even a future deadline", () => {
+    expect(receiptIsLive({ expiresAt: cap, consumedAt: sent }, cap, sent)).toBe(false);
+  });
+  it("unknown legacy policies get the 24-hour default, not indefinite retention", () => {
+    expect(viewingDeadline("legacy", sent, cap).getTime() - sent.getTime()).toBe(86400000);
   });
 });

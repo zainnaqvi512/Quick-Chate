@@ -6,12 +6,20 @@ import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
 import { startCleanupWorker } from "./expiration";
+import { handleMediaRequest } from "./mediaRouter";
 
 startCleanupWorker();
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
+app.use('/api/*', async (c, next) => {
+  c.header('Cache-Control', 'no-store, private');
+  c.header('X-Content-Type-Options', 'nosniff');
+  await next();
+});
+app.get('/api/health', (c) => c.json({ status: 'ok', service: 'quick-chat' }));
+app.get('/api/media', (c) => handleMediaRequest(c.req.raw));
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

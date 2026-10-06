@@ -15,7 +15,8 @@ export const contactsRouter = createRouter({
     const result = [];
     for (const c of rows) {
       const u = await db.select().from(users).where(eq(users.id, c.contactUserId)).limit(1);
-      if (u[0]) result.push({ contactId: c.id, alias: c.name, user: publicUser(u[0], true) });
+      const reciprocal = await db.select().from(contacts).where(and(eq(contacts.ownerId,c.contactUserId),eq(contacts.contactUserId,ctx.user.id))).limit(1);
+      if (u[0]) result.push({ contactId: c.id, alias: c.name, user: publicUser(u[0], reciprocal.length>0) });
     }
     return result;
   }),

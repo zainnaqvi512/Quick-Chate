@@ -6,13 +6,16 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 export function setToken(token: string | null) {
+  window.dispatchEvent(new Event('quickchat-account-change'));
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
 }
 
 export type Me = {
   id: number;
-  phone: string;
+  phone: string | null;
+  email?: string | null;
+  username?: string | null;
   name: string;
   about: string;
   avatarUrl: string | null;
@@ -50,6 +53,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>(
     () => (localStorage.getItem("quickchat.theme") as ThemeMode) || "system",
   );
+  useEffect(() => {
+    const changed = (event: StorageEvent) => {
+      if (event.key === TOKEN_KEY) {
+        window.dispatchEvent(new Event('quickchat-account-change'));
+        setTok(event.newValue);
+      }
+    };
+    window.addEventListener('storage',changed);
+    return () => window.removeEventListener('storage',changed);
+  }, []);
 
   useEffect(() => {
     applyTheme(theme);

@@ -22,7 +22,7 @@ export function Logo({ size = 36 }: { size?: number }) {
   );
 }
 
-import { trpc } from "@/providers/trpc";
+import { usePrivateMedia } from "@/lib/media";
 
 export function Avatar({
   name,
@@ -30,15 +30,13 @@ export function Avatar({
   size = 40,
   online,
 }: {
-  name: string;
+  name: string | null;
   url?: string | null;
   size?: number;
   online?: boolean;
 }) {
-  const isKey = !!url && !/^https?:|^data:/.test(url);
-  const urlQuery = trpc.media.url.useQuery({ key: url ?? "" }, { enabled: isKey, staleTime: 8 * 60_000 });
-  const src = isKey ? (urlQuery.data?.url ?? null) : (url ?? null);
-  const text = name
+  const { url: src } = usePrivateMedia(url);
+  const text = (name || 'User')
     .trim()
     .split(/\s+/)
     .map((p) => p[0])
@@ -48,7 +46,7 @@ export function Avatar({
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       {src ? (
-        <img src={src} alt={name} className="rounded-full object-cover w-full h-full" />
+        <img src={src} alt={name || 'User'} className="rounded-full object-cover w-full h-full" />
       ) : (
         <div
           className="rounded-full flex items-center justify-center text-white font-semibold w-full h-full"
