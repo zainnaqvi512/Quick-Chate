@@ -91,7 +91,7 @@ describe("MySQL retention and authorization", () => {
     const outsider = await caller(other);
     await expect(outsider.messages.list({ conversationId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(outsider.messages.star({ messageId: id, starred: true })).rejects.toBeDefined();
-    expect(await outsider.messages.search({ query: "private fixture" })).toEqual([]);
+    expect(await outsider.messages.search({ query: "private fixture" })).toEqual({ messages: [], users: [] });
     await expect(outsider.messages.send({ conversationId, type: "text", content: "reply", replyToId: id })).rejects.toBeDefined();
   });
 

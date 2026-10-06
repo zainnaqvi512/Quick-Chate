@@ -18,4 +18,4 @@ The GitHub Actions workflow now defines a disposable MySQL 9 service with synthe
 
 Run with `npm run test:integration`. This requires an explicitly supplied `TEST_DATABASE_URL`, loopback host, database `quick_chat_test`, user `quick_chat_ci`, and an empty schema. It never reads `DATABASE_URL`, drops tables, or resets an existing database. Each run requires a fresh container. The checked-in baseline migration is applied before fixtures are inserted.
 
-Integration execution status: pending the first GitHub Actions run. Typechecking is separate: `npx tsc --project tsconfig.integration.json`. Passing this suite does not establish browser behavior, complete API coverage, production migration safety or real media deletion.
+Initial GitHub Actions execution applied the fresh baseline migration successfully and passed 10 of 11 scenarios. The failing assertion expected the wrong search response shape; it has been corrected and a fresh run is required. Typechecking is separate: `npx tsc --project tsconfig.integration.json`. Passing this suite does not establish browser behavior, complete API coverage, production migration safety or real media deletion.
