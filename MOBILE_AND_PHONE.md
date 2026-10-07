@@ -41,11 +41,15 @@ CI builds an Android debug APK, compiles an unsigned iOS simulator app, checks T
 
 ## Remaining gaps
 
-### Validation of this local upgrade
+### Published upgrade and validation
 
 38 unit tests, application/API TypeScript, integration-suite TypeScript, lint and the web/server build passed. Three built-server smoke checks passed. Android and iOS scaffold generation/sync succeeded with the custom bridges installed.
 
-The new MySQL integration cases and native compilation have not run for this revision. Automatic approval review rejected uploading the modified source to GitHub because publishing authorization was not explicit enough. GitHub CI and Railway deployment remain pending that approval; the live app has not received this upgrade.
+Published with the owner's explicit approval to `feat/quick-chat-private-messaging`, code commit `5d9b2329164a6031a9da66a80efd368b52ee9178`. GitHub Actions run `37639450851` passed all four jobs: 38 unit tests, 14 disposable-MySQL integration tests, web/type/lint/security checks, Android debug APK compilation and unsigned iOS simulator compilation.
+
+The Android APK is in the run's `quick-chat-android-debug` artifact (`11491536296`, expires 2026-10-14). The simulator build is not a signed iPhone/TestFlight release. Neither native build has been tested on physical hardware.
+
+Railway deployment `975d7e5e-12cd-4781-ab61-d15b3f83f6b7` succeeded and is pinned to that tested code commit. The live `/auth` screen was checked: Sign in and Create account are visible, and email login is absent. SMS remains unavailable until provider configuration is completed.
 
 - No physical Android/iOS call or sensor test has been performed.
 - TURN relay service is not configured; cross-network connectivity is not guaranteed.
