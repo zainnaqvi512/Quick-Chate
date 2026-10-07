@@ -7,3 +7,5 @@ dist
 .env.*
 uploads
 private-media
+android
+ios

@@ -2,6 +2,12 @@ import { describe, it, expect } from "vitest";
 import { normalizePhone, hashOtp, generateOtp } from "./auth";
 
 describe("phone normalization", () => {
+  it('keeps an international number intact regardless of selected country',()=>{
+    expect(normalizePhone('+92','+44 7700 900123')).toBe('+447700900123');
+  });
+  it('preserves significant Italian leading zero',()=>{
+    expect(normalizePhone('+39','02 36618 300')).toBe('+390236618300');
+  });
   it("normalizes Pakistani numbers", () => {
     expect(normalizePhone("+92", "300 1234567")).toBe("+923001234567");
   });

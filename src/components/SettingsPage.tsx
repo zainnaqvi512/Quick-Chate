@@ -31,6 +31,7 @@ import { fileToBase64 } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { PhoneSignIn } from './PhoneSignIn';
 import {
   AlertTriangle,
   Bell,
@@ -209,7 +210,8 @@ function ProfileSettings({ me, onBack }: { me: Me; onBack: () => void }) {
         <span className="text-muted-foreground">About</span>
         <Input value={about} onChange={(e) => setAbout(e.target.value)} maxLength={200} />
       </label>
-      <p className="text-sm text-muted-foreground">Phone: {me.phone}</p>
+      <p className="text-sm text-muted-foreground">Phone: {me.phone || 'Not linked'} · Username: {me.username ? `@${me.username}` : 'Not set'}</p>
+      {!me.phone && <div className="border rounded-xl p-4"><PhoneSignIn link onLinked={onBack}/></div>}
       <Button
         className="bg-sky-500 hover:bg-sky-600 text-white"
         disabled={!name.trim() || update.isPending}

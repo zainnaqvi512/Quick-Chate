@@ -88,19 +88,21 @@ export function NewChatDialog({
                 <Input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Phone number or name"
+                  placeholder="Name, @username or phone"
                   className="pl-9"
                   aria-label="Search users"
                 />
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">Search for someone already registered on Quick Chat by name or @username. Phone search only works after they link a verified number. WhatsApp contacts are not imported automatically.</p>
+            {(searchQuery.error || createDirect.error || createGroup.error) && <p role="alert" className="text-sm text-destructive">{searchQuery.error?.message || createDirect.error?.message || createGroup.error?.message}</p>}
             <div className="max-h-64 overflow-y-auto space-y-1">
               {searchQuery.isFetching && (
                 <div className="flex justify-center py-4">
                   <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
                 </div>
               )}
-              {query.trim().length >= 2 && !searchQuery.isFetching && results.length === 0 && (
+              {query.trim().length >= 2 && !searchQuery.isFetching && !searchQuery.error && results.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No Quick Chat user found. Invite them to join!
                 </p>
@@ -110,7 +112,7 @@ export function NewChatDialog({
                   <Avatar name={u.name || u.phone} url={u.avatarUrl} size={38} />
                   <div className="flex-1 min-w-0">
                     <div className="font-medium truncate">{u.name || u.phone}</div>
-                    <div className="text-xs text-muted-foreground truncate">{u.phone}</div>
+                    <div className="text-xs text-muted-foreground truncate">{u.username ? `@${u.username}` : u.phone || 'Quick Chat user'}</div>
                   </div>
                   <Button
                     size="sm"

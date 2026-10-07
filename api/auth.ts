@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { TRPCError } from "@trpc/server";
 import { and, eq, gt } from "drizzle-orm";
 import { getDb } from "./queries/connection";
@@ -28,13 +29,11 @@ export function hashOtp(phone: string, otp: string): string {
 
 /** Normalize phone to E.164-like: "+" + dial code digits + national digits (leading 0 stripped). */
 export function normalizePhone(countryCode: string, national: string): string {
-  const dial = countryCode.replace(/[^\d]/g, "");
-  let nat = national.replace(/[^\d]/g, "");
-  nat = nat.replace(/^0+/, "");
-  if (!dial || !nat) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid phone number" });
-  if (nat.length < 4 || nat.length > 14)
-    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid phone number length" });
-  return `+${dial}${nat}`;
+  if (!/^[+\d\s().-]+$/.test(national)) throw new TRPCError({code:'BAD_REQUEST',message:'Invalid phone number'});
+  const raw=national.trim().startsWith('+') ? national.trim() : `${countryCode}${national}`;
+  const parsed=parsePhoneNumberFromString(raw);
+  if(!parsed?.isPossible()) throw new TRPCError({code:'BAD_REQUEST',message:'Invalid phone number length'});
+  return parsed.number;
 }
 
 export function generateOtp(): string {

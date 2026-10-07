@@ -7,10 +7,12 @@ import { messagesRouter } from "./messagesRouter";
 import { statusRouter } from "./statusRouter";
 import { callsRouter } from "./callsRouter";
 import { mediaRouter } from "./mediaRouter";
+import { phoneRouter } from "./phoneRouter";
 
 export const appRouter = createRouter({
   ping: publicQuery.query(() => ({ ok: true, ts: Date.now() })),
   auth: authRouter,
+  phone: phoneRouter,
   users: usersRouter,
   contacts: contactsRouter,
   conversations: conversationsRouter,

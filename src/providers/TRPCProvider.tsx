@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import superjson from "superjson";
 import { useEffect, type ReactNode } from "react";
 import { getToken } from "@/lib/auth";
+import { apiUrl } from '@/lib/apiUrl';
 
 import { trpc } from "./trpc";
 
@@ -14,7 +15,7 @@ const queryClient = new QueryClient({
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "/api/trpc",
+      url: apiUrl('/api/trpc'),
       transformer: superjson,
       headers() {
         const token = getToken();
@@ -23,7 +24,7 @@ const trpcClient = trpc.createClient({
       fetch(input, init) {
         return globalThis.fetch(input, {
           ...(init ?? {}),
-          credentials: "include",
+          credentials: "omit",
           cache: "no-store",
         });
       },

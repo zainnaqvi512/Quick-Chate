@@ -107,9 +107,7 @@ export const usersRouter = createRouter({
       if (/^[\d+\s()-]+$/.test(q) && q.replace(/\D/g, "").length >= 4) {
         let phone: string | null = null;
         try {
-          phone = q.startsWith("+")
-            ? normalizePhone("+" + q.replace(/\D/g, "").slice(0, 3), q.replace(/\D/g, "").slice(3))
-            : normalizePhone(input.countryCode || "+1", q);
+          phone = normalizePhone(input.countryCode || "+1", q);
         } catch {
           phone = null;
         }

@@ -48,6 +48,7 @@ export const authRouter = createRouter({
     name: z.string().trim().min(1).max(128),
     username: z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9_]{2,31}$/, "Username must be 3–32 letters, numbers or underscores and start with a letter"),
   })).mutation(async ({ input, ctx }) => {
+    if(process.env.ALLOW_EMAIL_SIGNUP !== 'true') throw new TRPCError({code:'FORBIDDEN',message:'New accounts require phone verification. Use phone sign-up.'});
     limitAuth(input.email);
     const db = getDb();
     const passwordHash = await hashPassword(input.password);

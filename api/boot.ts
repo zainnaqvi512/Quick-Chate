@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { cors } from 'hono/cors';
 import type { HttpBindings } from "@hono/node-server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./router";
@@ -11,6 +12,9 @@ import { handleMediaRequest } from "./mediaRouter";
 startCleanupWorker();
 
 const app = new Hono<{ Bindings: HttpBindings }>();
+const nativeOrigins=(process.env.NATIVE_ORIGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
+app.use('/api/*',cors({origin:origin=>nativeOrigins.includes(origin)?origin:undefined,
+  allowMethods:['GET','POST','OPTIONS'],allowHeaders:['Content-Type','Authorization'],credentials:false}));
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 app.use('/api/*', async (c, next) => {
