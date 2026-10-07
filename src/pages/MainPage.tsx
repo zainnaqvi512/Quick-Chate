@@ -8,6 +8,7 @@ import { StatusPage } from "@/components/StatusPage";
 import { CallsPage } from "@/components/CallsPage";
 import { ContactsPage } from "@/components/ContactsPage";
 import { SettingsPage } from "@/components/SettingsPage";
+import { PhoneSignIn } from "@/components/PhoneSignIn";
 import { CallManager } from "@/components/call/CallManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ const NAV: { id: Section; label: string; icon: typeof MessageCircle }[] = [
 
 function ProfileSetup({ me, onDone }: { me: Me; onDone: () => void }) {
   const [name, setName] = useState(me.name || "");
+  const [username, setUsername] = useState(me.username || "");
   const [about, setAbout] = useState("");
   const update = trpc.users.updateMe.useMutation({ onSuccess: onDone });
   return (
@@ -40,16 +42,52 @@ function ProfileSetup({ me, onDone }: { me: Me; onDone: () => void }) {
         <div className="flex flex-col items-center">
           <Logo size={48} />
           <h2 className="mt-3 text-xl font-semibold">Welcome to Quick Chat</h2>
-          <p className="text-sm text-muted-foreground">Set up your profile so friends can find you.</p>
+          <p className="text-sm text-muted-foreground">
+            Set up your profile so friends can find you.
+          </p>
         </div>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Display name" maxLength={60} />
-        <Input value={about} onChange={(e) => setAbout(e.target.value)} placeholder="About (optional)" maxLength={200} />
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Display name"
+          maxLength={60}
+        />
+        <Input
+          aria-label="Username"
+          value={username}
+          onChange={e => setUsername(e.target.value.toLowerCase())}
+          placeholder="Unique username (3–32 characters)"
+          maxLength={32}
+        />
+        {update.error && (
+          <p role="alert" className="text-sm text-destructive">
+            {update.error.message}
+          </p>
+        )}
+        <Input
+          value={about}
+          onChange={e => setAbout(e.target.value)}
+          placeholder="About (optional)"
+          maxLength={200}
+        />
         <Button
           className="w-full bg-sky-500 hover:bg-sky-600 text-white"
-          disabled={!name.trim() || update.isPending}
-          onClick={() => update.mutate({ name: name.trim(), about: about.trim() || undefined })}
+          disabled={
+            !name.trim() ||
+            !/^[a-z][a-z0-9_]{2,31}$/.test(username) ||
+            update.isPending
+          }
+          onClick={() =>
+            update.mutate({
+              username,
+              name: name.trim(),
+              about: about.trim() || undefined,
+            })
+          }
         >
-          {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {update.isPending && (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          )}
           Continue
         </Button>
       </div>
@@ -89,23 +127,40 @@ export default function MainPage() {
   }
   const me = meQuery.data as Me | undefined;
   if (!me) return null;
-  if (!me.profileComplete) return <ProfileSetup me={me} onDone={() => meQuery.refetch()} />;
+  if (!me.phone)
+    return (
+      <main className="min-h-dvh flex items-center justify-center p-6">
+        <div className="max-w-md space-y-5">
+          <PhoneSignIn link onLinked={() => void meQuery.refetch()} />
+          <Button variant="outline" onClick={logout}>
+            Sign out
+          </Button>
+        </div>
+      </main>
+    );
+  if (!me.profileComplete || !me.username)
+    return <ProfileSetup me={me} onDone={() => meQuery.refetch()} />;
 
   const wide = (
     <div className="hidden md:flex h-dvh">
       {/* Rail nav */}
-      <nav className="w-16 border-r bg-card flex flex-col items-center py-4 gap-1" aria-label="Main navigation">
+      <nav
+        className="w-16 border-r bg-card flex flex-col items-center py-4 gap-1"
+        aria-label="Main navigation"
+      >
         <div className="mb-4">
           <Logo size={34} />
         </div>
-        {NAV.map((n) => (
+        {NAV.map(n => (
           <button
             key={n.id}
             aria-label={n.label}
             title={n.label}
             onClick={() => setSection(n.id)}
             className={`p-3 rounded-xl transition-colors ${
-              section === n.id ? "bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400" : "text-muted-foreground hover:bg-accent"
+              section === n.id
+                ? "bg-sky-100 text-sky-600 dark:bg-sky-950 dark:text-sky-400"
+                : "text-muted-foreground hover:bg-accent"
             }`}
           >
             <n.icon className="h-5 w-5" />
@@ -117,23 +172,37 @@ export default function MainPage() {
       </nav>
       {/* List panel */}
       <aside className="w-80 border-r bg-card flex flex-col min-h-0">
-        {section === "chats" && <ChatList me={me} activeId={activeConv} onOpen={openConversation} />}
+        {section === "chats" && (
+          <ChatList me={me} activeId={activeConv} onOpen={openConversation} />
+        )}
         {section === "status" && <StatusPage me={me} />}
         {section === "calls" && <CallsPage onOpenChat={openConversation} />}
-        {section === "contacts" && <ContactsPage onOpenChat={openConversation} />}
-        {section === "settings" && <SettingsPage me={me} onUpdated={() => meQuery.refetch()} />}
+        {section === "contacts" && (
+          <ContactsPage onOpenChat={openConversation} />
+        )}
+        {section === "settings" && (
+          <SettingsPage me={me} onUpdated={() => meQuery.refetch()} />
+        )}
       </aside>
       {/* Main panel */}
       <main className="flex-1 min-w-0 min-h-0">
         {section === "chats" && activeConv ? (
-          <ChatWindow key={activeConv} me={me} conversationId={activeConv} onClose={() => setActiveConv(null)} />
+          <ChatWindow
+            key={activeConv}
+            me={me}
+            conversationId={activeConv}
+            onClose={() => setActiveConv(null)}
+          />
         ) : (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-center p-8 chat-bg">
             <Logo size={72} />
-            <h2 className="text-2xl font-semibold text-sky-600 dark:text-sky-400">Quick Chat for Web</h2>
+            <h2 className="text-2xl font-semibold text-sky-600 dark:text-sky-400">
+              Quick Chat for Web
+            </h2>
             <p className="text-sm text-muted-foreground max-w-sm">
-              Messages refresh automatically. Choose how long new messages remain after viewing.
-              Screenshots and external copies cannot be prevented. This version is not end-to-end encrypted.
+              Messages refresh automatically. Choose how long new messages
+              remain after viewing. Screenshots and external copies cannot be
+              prevented. This version is not end-to-end encrypted.
             </p>
           </div>
         )}
@@ -145,26 +214,46 @@ export default function MainPage() {
     <div className="md:hidden h-dvh flex flex-col">
       <div className="flex-1 min-h-0">
         {activeConv && section === "chats" ? (
-          <ChatWindow key={activeConv} me={me} conversationId={activeConv} onClose={() => setActiveConv(null)} />
+          <ChatWindow
+            key={activeConv}
+            me={me}
+            conversationId={activeConv}
+            onClose={() => setActiveConv(null)}
+          />
         ) : (
           <>
-            {section === "chats" && <ChatList me={me} activeId={activeConv} onOpen={openConversation} />}
+            {section === "chats" && (
+              <ChatList
+                me={me}
+                activeId={activeConv}
+                onOpen={openConversation}
+              />
+            )}
             {section === "status" && <StatusPage me={me} />}
             {section === "calls" && <CallsPage onOpenChat={openConversation} />}
-            {section === "contacts" && <ContactsPage onOpenChat={openConversation} />}
-            {section === "settings" && <SettingsPage me={me} onUpdated={() => meQuery.refetch()} />}
+            {section === "contacts" && (
+              <ContactsPage onOpenChat={openConversation} />
+            )}
+            {section === "settings" && (
+              <SettingsPage me={me} onUpdated={() => meQuery.refetch()} />
+            )}
           </>
         )}
       </div>
       {!(activeConv && section === "chats") && (
-        <nav className="border-t bg-card flex justify-around py-1.5" aria-label="Main navigation">
-          {NAV.map((n) => (
+        <nav
+          className="border-t bg-card flex justify-around py-1.5"
+          aria-label="Main navigation"
+        >
+          {NAV.map(n => (
             <button
               key={n.id}
               aria-label={n.label}
               onClick={() => setSection(n.id)}
               className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-[11px] ${
-                section === n.id ? "text-sky-600 dark:text-sky-400" : "text-muted-foreground"
+                section === n.id
+                  ? "text-sky-600 dark:text-sky-400"
+                  : "text-muted-foreground"
               }`}
             >
               <n.icon className="h-5 w-5" />

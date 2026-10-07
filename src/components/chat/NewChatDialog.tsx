@@ -2,7 +2,12 @@ import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Avatar } from "@/components/Logo";
 import { COUNTRIES } from "@/lib/countries";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -24,20 +29,20 @@ export function NewChatDialog({
 
   const searchQuery = trpc.users.search.useQuery(
     { query, countryCode: countryDial },
-    { enabled: query.trim().length >= 2 },
+    { enabled: query.trim().length >= 2 }
   );
   const contactsQuery = trpc.contacts.list.useQuery();
 
   const utils = trpc.useUtils();
   const createDirect = trpc.conversations.createDirect.useMutation({
-    onSuccess: (r) => {
+    onSuccess: r => {
       utils.conversations.list.invalidate();
       onOpen(r.id);
       handleClose();
     },
   });
   const createGroup = trpc.conversations.createGroup.useMutation({
-    onSuccess: (r) => {
+    onSuccess: r => {
       utils.conversations.list.invalidate();
       onOpen(r.id);
       handleClose();
@@ -54,11 +59,11 @@ export function NewChatDialog({
     onClose();
   }
 
-  const results = searchQuery.data ?? [];
+  const results = query.trim().length >= 2 ? (searchQuery.data ?? []) : [];
   const contacts = contactsQuery.data ?? [];
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+    <Dialog open={open} onOpenChange={o => !o && handleClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>New conversation</DialogTitle>
@@ -74,10 +79,10 @@ export function NewChatDialog({
               <select
                 aria-label="Country code"
                 value={countryDial}
-                onChange={(e) => setCountryDial(e.target.value)}
+                onChange={e => setCountryDial(e.target.value)}
                 className="rounded-md border bg-background px-2 text-sm"
               >
-                {COUNTRIES.map((c) => (
+                {COUNTRIES.map(c => (
                   <option key={c.name} value={c.dial}>
                     {c.flag} {c.dial}
                   </option>
@@ -87,32 +92,57 @@ export function NewChatDialog({
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Name, @username or phone"
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Exact @username or phone"
                   className="pl-9"
                   aria-label="Search users"
                 />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">Search for someone already registered on Quick Chat by name or @username. Phone search only works after they link a verified number. WhatsApp contacts are not imported automatically.</p>
-            {(searchQuery.error || createDirect.error || createGroup.error) && <p role="alert" className="text-sm text-destructive">{searchQuery.error?.message || createDirect.error?.message || createGroup.error?.message}</p>}
+            <p className="text-xs text-muted-foreground">
+              Enter the complete username or phone number of a Quick Chat
+              account. Partial names do not return contacts.
+            </p>
+            {(searchQuery.error || createDirect.error || createGroup.error) && (
+              <p role="alert" className="text-sm text-destructive">
+                {searchQuery.error?.message ||
+                  createDirect.error?.message ||
+                  createGroup.error?.message}
+              </p>
+            )}
             <div className="max-h-64 overflow-y-auto space-y-1">
               {searchQuery.isFetching && (
                 <div className="flex justify-center py-4">
                   <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
                 </div>
               )}
-              {query.trim().length >= 2 && !searchQuery.isFetching && !searchQuery.error && results.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No Quick Chat user found. Invite them to join!
-                </p>
-              )}
-              {results.map((u) => (
-                <div key={u.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent">
-                  <Avatar name={u.name || u.phone} url={u.avatarUrl} size={38} />
+              {query.trim().length >= 2 &&
+                !searchQuery.isFetching &&
+                !searchQuery.error &&
+                results.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No Quick Chat user found. Invite them to join!
+                  </p>
+                )}
+              {results.map(u => (
+                <div
+                  key={u.id}
+                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-accent"
+                >
+                  <Avatar
+                    name={u.name || u.phone}
+                    url={u.avatarUrl}
+                    size={38}
+                  />
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{u.name || u.phone}</div>
-                    <div className="text-xs text-muted-foreground truncate">{u.username ? `@${u.username}` : u.phone || 'Quick Chat user'}</div>
+                    <div className="font-medium truncate">
+                      {u.name || u.phone}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate">
+                      {u.username
+                        ? `@${u.username}`
+                        : u.phone || "Quick Chat user"}
+                    </div>
                   </div>
                   <Button
                     size="sm"
@@ -127,20 +157,30 @@ export function NewChatDialog({
                   </Button>
                 </div>
               ))}
-              {query.trim().length < 2 && contacts.length > 0 && (
+              {query.trim().length === 0 && contacts.length > 0 && (
                 <>
-                  <p className="text-xs text-muted-foreground px-1 pt-1">Your contacts</p>
-                  {contacts.map((c) => (
+                  <p className="text-xs text-muted-foreground px-1 pt-1">
+                    Your contacts
+                  </p>
+                  {contacts.map(c => (
                     <button
                       key={c.user.id}
                       className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-accent text-left"
                       disabled={createDirect.isPending}
                       onClick={() => createDirect.mutate({ userId: c.user.id })}
                     >
-                      <Avatar name={c.alias || c.user.name} url={c.user.avatarUrl} size={38} />
+                      <Avatar
+                        name={c.alias || c.user.name}
+                        url={c.user.avatarUrl}
+                        size={38}
+                      />
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">{c.alias || c.user.name}</div>
-                        <div className="text-xs text-muted-foreground truncate">{c.user.phone}</div>
+                        <div className="font-medium truncate">
+                          {c.alias || c.user.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {c.user.phone}
+                        </div>
                       </div>
                     </button>
                   ))}
@@ -152,13 +192,14 @@ export function NewChatDialog({
           <TabsContent value="group" className="space-y-3 pt-3">
             <Input
               value={groupName}
-              onChange={(e) => setGroupName(e.target.value)}
+              onChange={e => setGroupName(e.target.value)}
               placeholder="Group name"
               maxLength={60}
               aria-label="Group name"
             />
             <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Users className="h-3.5 w-3.5" /> Select members ({selected.length} selected)
+              <Users className="h-3.5 w-3.5" /> Select members (
+              {selected.length} selected)
             </p>
             <div className="max-h-64 overflow-y-auto space-y-1">
               {contacts.length === 0 && (
@@ -166,20 +207,30 @@ export function NewChatDialog({
                   Add contacts first (search by phone number in the Direct tab).
                 </p>
               )}
-              {contacts.map((c) => {
+              {contacts.map(c => {
                 const on = selected.includes(c.user.id);
                 return (
                   <button
                     key={c.user.id}
                     className={`w-full flex items-center gap-3 p-2 rounded-lg text-left ${on ? "bg-sky-100 dark:bg-sky-950" : "hover:bg-accent"}`}
                     onClick={() =>
-                      setSelected((s) => (on ? s.filter((x) => x !== c.user.id) : [...s, c.user.id]))
+                      setSelected(s =>
+                        on ? s.filter(x => x !== c.user.id) : [...s, c.user.id]
+                      )
                     }
                   >
-                    <Avatar name={c.alias || c.user.name} url={c.user.avatarUrl} size={38} />
+                    <Avatar
+                      name={c.alias || c.user.name}
+                      url={c.user.avatarUrl}
+                      size={38}
+                    />
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{c.alias || c.user.name}</div>
-                      <div className="text-xs text-muted-foreground">{c.user.phone}</div>
+                      <div className="font-medium truncate">
+                        {c.alias || c.user.name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {c.user.phone}
+                      </div>
                     </div>
                     <span
                       className={`h-5 w-5 rounded-full border flex items-center justify-center ${on ? "bg-sky-500 border-sky-500 text-white" : ""}`}
@@ -192,10 +243,21 @@ export function NewChatDialog({
             </div>
             <Button
               className="w-full bg-sky-500 hover:bg-sky-600 text-white"
-              disabled={!groupName.trim() || selected.length === 0 || createGroup.isPending}
-              onClick={() => createGroup.mutate({ name: groupName.trim(), memberIds: selected })}
+              disabled={
+                !groupName.trim() ||
+                selected.length === 0 ||
+                createGroup.isPending
+              }
+              onClick={() =>
+                createGroup.mutate({
+                  name: groupName.trim(),
+                  memberIds: selected,
+                })
+              }
             >
-              {createGroup.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {createGroup.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
               Create group
             </Button>
           </TabsContent>

@@ -1,6 +1,6 @@
 # Quick Chat ⚡
 
-> **Development branch status (2026-10-06):** see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the authoritative current feature/test status. The historical overview below describes the original implementation and is not a verification report. This branch adds email/password auth and configurable per-message retention. It is not deployed or production-ready; it is not E2EE. Use [DEPLOYMENT.md](DEPLOYMENT.md) before attempting any migration.
+> **Preview status (2026-10-07):** see [MOBILE_AND_PHONE.md](MOBILE_AND_PHONE.md) for current phone-only authentication, exact contact lookup, native call controls, build checks and remaining blockers. Email sign-in is disabled; SMS activation still requires provider setup. This is a deployed preview, not WhatsApp feature parity or a production-ready/E2EE messenger. The historical overview below is not a verification report. Use [DEPLOYMENT.md](DEPLOYMENT.md) before migrations.
 
 A full-stack, real-time messaging application with an original sky-blue identity — and one defining twist:
 

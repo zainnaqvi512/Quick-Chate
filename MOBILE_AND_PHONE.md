@@ -1,42 +1,55 @@
-# Phone-first and mobile implementation checkpoint
+# Quick Chat: phone accounts and calling
 
-## What changed
+## Current implementation
 
-- The primary sign-in screen accepts a phone number and verifies an SMS code through Twilio Verify.
-- New email registration is disabled by default. Existing email/password users retain sign-in and can link a verified phone under Settings → Profile without losing chats.
-- Login and linking challenges are signed, expire after ten minutes, are bound to the intended account, and require the provider's approved status for the same number. No production test OTP is exposed.
-- SMS country allowlist, global/phone resend limits, and check limits are enforced. In-memory limits are only a single-replica defense; configure provider-side fraud/rate/spend controls before activation.
-- Search explains name/@username/verified-phone lookup and displays usernames. It does not import WhatsApp accounts or a device address book.
-- Capacitor Android/iOS project generation bundles the React UI locally and connects to the HTTPS backend, rather than loading a remote website as the app UI.
+- Sign in and Create account both require a phone number and a provider-approved SMS code. Email login and registration are rejected by the API, even if the old email-signup flag is enabled.
+- Existing email-only sessions can view their own account and link a verified phone. Messaging, calls, search and protected media are inaccessible until verification. Existing chats are retained. A signed-out email-only account cannot currently be recovered or migrated; do not delete its data or merge accounts by an unverified identifier.
+- Profile setup requires a unique username. Username and phone searches return exact matches only, exclude blocked accounts, and honor avatar/about privacy. Display-name and partial-user matching are removed from both search endpoints. Message-content search is unchanged.
+- The call screen has mute/unmute, hold/resume, audio output, camera on/off, camera flip, minimize/return and end controls. Hold disables local outgoing tracks and remote playback; the other caller receives hold state.
+- Desktop screen sharing replaces the outgoing video track on video calls where the browser supports display capture. It does not share system audio. Video upgrade within a voice call, group calling, and native screen broadcasting are not implemented.
+- WebRTC candidates wait for remote SDP; answer application is guarded, media survives minimize/restore, duplicate start/accept gestures are blocked, and cleanup closes tracks and releases native audio. Server starts lock both participants to prevent concurrent-call races; accept checks the conditional update.
+- Android and iOS bridges control communication audio. Proximity monitoring is enabled only for a voice call whose actual output is the earpiece. Speaker, video and external-headset routes disable it. Devices without a receiver/sensor cannot offer those features.
+- Browser builds use system output or a browser output picker where supported; they cannot claim native earpiece or proximity control.
 
 ## SMS activation blocker
 
-In Railway's app service variables, securely configure `OTP_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`, `APP_SECRET`, and `SMS_ALLOWED_PREFIXES` (initially `+92` for Pakistan testing). Never commit or send credentials in chat.
+In Railway's app service variables, securely configure:
+`OTP_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`, `APP_SECRET`, and `SMS_ALLOWED_PREFIXES` (initially `+92` for Pakistan testing).
 
-Create/configure the Verify service and its Geo Permissions, fraud protection, rate limits and billing controls in your provider account. Live texts cost money and regional/carrier coverage varies. No SMS provider has been provisioned or funded by this change. Do not claim verification works end-to-end until a real send and check passes. New signup is unavailable until this is configured; existing email login continues.
+Configure the Verify service's geographic permissions, fraud protection and billing controls in the provider account. Credentials must never be committed or pasted into chat. Live texts cost money and country/carrier coverage varies. No SMS provider was provisioned or funded by this change. No real SMS has been sent or verified. Phone-only enforcement means login and signup are unavailable until the provider is configured; there is no email fallback.
 
-## Reproduce the native projects
+Challenges are signed, expire after ten minutes, bind linking to the existing account, and require provider approval for the same number. Resend and verification limits are enforced in memory for this single app replica. Production test OTPs remain disabled.
 
-Install dependencies with `npm ci` using Node 22+. Set `VITE_API_ORIGIN=https://quick-chat-preview-production.up.railway.app` when building native apps (not needed for web builds).
+## Native projects
 
-Run `npm run mobile:android` or `npm run mobile:ios`. Generated platform folders are ignored and reproducible; preserve any future native customizations in the generation process or intentionally version those projects before editing them. Open with `npx cap open android` / `npx cap open ios`.
+Use Node 22+, `npm ci`, and `VITE_API_ORIGIN=https://quick-chat-preview-production.up.railway.app`.
+Run `npm run mobile:android` or `npm run mobile:ios`.
+The generated root `android/` and `ios/` folders are ignored. Versioned custom bridges live under `native/` and are installed by `scripts/mobile.mjs`, including permissions, registration and iOS storyboard configuration.
 
-Configure backend `NATIVE_ORIGINS=capacitor://localhost,https://localhost` to permit authenticated API requests from native WebViews. Never allow arbitrary origins. The app ID `app.quickchat.preview` is a provisional test identifier, not a final store identity.
+Backend `NATIVE_ORIGINS=capacitor://localhost,https://localhost` permits these WebViews. The provisional app ID is `app.quickchat.preview`. Android Studio/SDK/JDK and Xcode/macOS are needed for device builds. Store releases need developer accounts and signing.
 
-Android Studio/SDK/JDK and Xcode/macOS respectively are required for device builds. Generating projects does not mean an APK/IPA was compiled or tested. Store releases require the owner's developer accounts and signing setup.
+CI builds an Android debug APK, compiles an unsigned iOS simulator app, checks TypeScript/lint/unit tests, and runs integration tests against disposable MySQL. Build success does not establish physical-device audio or proximity behavior.
 
-## Still unfinished
+## Physical-device acceptance
 
-- Real-device Android/iOS testing and signed distribution.
-- Native push/incoming calls in background, contacts permission/sync, secure device credential storage, microphone/camera permissions and platform call/audio routing.
-- Production rate-limit persistence, verified migration rollout, complete recovery flows and end-to-end encryption.
-- Universal geographic availability is not guaranteed: connectivity, SMS coverage, local restrictions and store availability apply.
+1. Install the new APK, or build/sign the iOS app on a device.
+2. With SMS configured, verify two separate numbers and set usernames. Confirm partial names find nobody, exact username/phone finds the other account, and blocking hides the result.
+3. Test calls in both directions on Wi-Fi and cellular with TURN configured. Verify remote audio/video, mute, hold/resume, camera flip, minimize/return and hangup.
+4. Voice call: select earpiece and cover the proximity sensor. The physical display should turn off, then wake when uncovered. Repeat with speaker, video and headset; proximity should remain off.
+5. Deny microphone/camera permission, cancel while preparing, decline, let ringing expire, interrupt connectivity, and end from either device. Check that the microphone/camera indicators disappear and normal device audio is restored.
+6. Verify wired/Bluetooth output changes and speaker/receiver availability on each supported device/OS version. Older Android headset routing is system-controlled.
 
-Tests mock Twilio; they do not send SMS. The existing dev-only OTP endpoint remains disabled in production.
+## Remaining gaps
 
-## Verified build
+### Validation of this local upgrade
 
-Android debug APK compiled successfully in CI run `37590580040` and is available as
-`quick-chat-android-debug` (artifact `11468665922`, seven-day retention).
-The APK has not been tested on a physical Android device. iOS project generation/sync
-succeeded; an Xcode build and signed/TestFlight installation are still outstanding.
+38 unit tests, application/API TypeScript, integration-suite TypeScript, lint and the web/server build passed. Three built-server smoke checks passed. Android and iOS scaffold generation/sync succeeded with the custom bridges installed.
+
+The new MySQL integration cases and native compilation have not run for this revision. Automatic approval review rejected uploading the modified source to GitHub because publishing authorization was not explicit enough. GitHub CI and Railway deployment remain pending that approval; the live app has not received this upgrade.
+
+- No physical Android/iOS call or sensor test has been performed.
+- TURN relay service is not configured; cross-network connectivity is not guaranteed.
+- No native push, background/terminated-app incoming calling, CallKit/Android Telecom integration, contact-book synchronization, or signed store distribution.
+- No end-to-end message encryption, complete account recovery/migration, multi-device sync, group calls or live voice-to-video upgrade.
+- Polling remains the signaling/message transport. This is an upgraded preview, not WhatsApp feature parity.
+- Global availability depends on internet access, SMS delivery, device support and regional restrictions.
