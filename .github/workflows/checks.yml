@@ -12,6 +12,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Audit production dependencies
+        run: npm run security:production
       - run: npm test
       - run: npm run check
       - run: npm run build

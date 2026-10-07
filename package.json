@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "security:production": "npm audit --omit=dev --audit-level=low",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push"
@@ -72,8 +73,6 @@
     "hono": "^4.8.3",
     "@hono/node-server": "^1.14.3",
     "superjson": "^2.2.6",
-    "ai": "6.0.290",
-    "@ai-sdk/openai-compatible": "2.0.78",
     "drizzle-orm": "^0.45.1",
     "mysql2": "^3.14.1"
   },

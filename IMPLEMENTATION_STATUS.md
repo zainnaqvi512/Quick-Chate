@@ -11,7 +11,7 @@ Three built-server HTTP smoke checks pass: health, SPA login route and unauthent
 Release blockers:
 
 - All 11 isolated MySQL integration/concurrency scenarios pass, including fresh migration execution and 20-way view-once consumption. See TESTING.md for the GitHub run. No real two-user browser test, actual voice/video test or production verification.
-- GitHub Actions npm install reported 25 dependency vulnerabilities (17 high, 7 moderate, 1 low). Reachability and remediation have not yet been assessed; passing tests are not a security clearance.
+- Compatible dependency updates applied. On 2026-10-07, production dependency audit reports zero known vulnerabilities; full audit still reports 11 development-tool findings (5 high, 6 moderate). See DEPENDENCY_SECURITY.md for affected paths and remaining work. Passing tests/audit are not a security clearance.
 - Railway service named Quick Chat is currently a private MySQL database, not an app deployment. Credentials are redacted to the connector; no public app URL exists.
 - Official Railway pricing verified in COST.md; account plan, credits and spending limits remain unverified. No billable provisioning authorized.
 - Local database setup remains unavailable, but the approved GitHub Actions disposable MySQL job now runs without production secrets.
