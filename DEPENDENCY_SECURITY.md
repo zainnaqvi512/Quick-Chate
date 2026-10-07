@@ -15,7 +15,7 @@ Counts are affected package entries, including parents affected through dependen
 
 Applied compatible updates through npm audit fix without force or dependency overrides. The lockfile records Vite 7.3.7, PostCSS 8.5.29, Rollup 4.64.0, Lodash 4.18.1 and updated Babel, glob parsers, YAML parsing, source-map and lint-tool dependencies. Removed unused ai and @ai-sdk/openai-compatible packages after checking source imports. No AI feature was implemented or depended on them.
 
-Local validation passed: lint, application and integration-suite typechecks, 27 unit tests, production build and three built-server HTTP smoke checks. The large client-bundle warning remains. Updated dependencies must also pass the disposable MySQL job in GitHub Actions.
+Local validation passed: lint, application and integration-suite typechecks, 27 unit tests, production build and three built-server HTTP smoke checks. The large client-bundle warning remains. Both GitHub jobs passed with the updated dependencies, including the production audit gate and all 11 disposable MySQL scenarios: https://github.com/zainnaqvi512/Quick-Chate/actions/runs/37560622177 (code commit 8eaf41c653486b30c6760b40dec6030590ea6c52).
 
 CI runs npm run security:production and fails on any reported production dependency vulnerability. npm audit still reports the development findings below; they are not suppressed by an allowlist or forced version override.
 
