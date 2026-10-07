@@ -14,7 +14,7 @@ Do not publish this checkpoint as a complete secure messenger.
 Preview: https://quick-chat-preview-production.up.railway.app/auth
 
 The user authorized this test deployment. It runs commit
-`7a67c164bdb2967ed0b92bf5e0fad48f618c30d4` from
+`c28b9c01bdfd81d097f98d6a2ffb4b1dfec590b1` from
 `feat/quick-chat-private-messaging` in Railway project `sincere-reflection`.
 The existing database in the separate project was not modified.
 
@@ -30,6 +30,21 @@ The existing database in the separate project was not modified.
   sign-in page; calls and the full interactive chat flow were not tested in this deployment.
 - Resource limits are not billing caps. Monitor Railway usage; free credits are not guaranteed
   to cover continuous operation. No paid plan upgrade was performed.
+
+### Phone/mobile update
+
+CI run https://github.com/zainnaqvi512/Quick-Chate/actions/runs/37590580040 passed
+all three jobs: application verification (33 unit tests), disposable MySQL integration,
+and Android debug APK compilation. Railway reports the updated app and database online.
+The browser visibly renders phone-first onboarding and the provider-not-configured notice.
+Existing email login remains; new email registration is disabled. New signup is unavailable
+until real SMS provider configuration is supplied. No live SMS has been sent or verified.
+
+Android test APK artifact (ZIP containing app-debug.apk; expires October 14, 2026):
+https://github.com/zainnaqvi512/Quick-Chate/actions/runs/37590580040/artifacts/11468665922
+
+This is a compiled debug build, not a device-tested or store-ready release. iOS scaffolding
+was generated and synchronized; no iOS binary was compiled/signed. See MOBILE_AND_PHONE.md.
 
 Use test accounts and data. Email verification/recovery, production session hardening,
 and full call validation remain unfinished. TURN is not configured for this preview.

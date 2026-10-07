@@ -33,3 +33,10 @@ Android Studio/SDK/JDK and Xcode/macOS respectively are required for device buil
 - Universal geographic availability is not guaranteed: connectivity, SMS coverage, local restrictions and store availability apply.
 
 Tests mock Twilio; they do not send SMS. The existing dev-only OTP endpoint remains disabled in production.
+
+## Verified build
+
+Android debug APK compiled successfully in CI run `37590580040` and is available as
+`quick-chat-android-debug` (artifact `11468665922`, seven-day retention).
+The APK has not been tested on a physical Android device. iOS project generation/sync
+succeeded; an Xcode build and signed/TestFlight installation are still outstanding.

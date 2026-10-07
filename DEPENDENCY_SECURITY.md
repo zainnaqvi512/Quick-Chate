@@ -2,6 +2,15 @@
 
 This is a dependency advisory review, not a penetration test or production approval.
 
+## Later phone/mobile checkpoint
+
+After adding Capacitor 8.5.2 and libphonenumber-js, the production audit remains zero.
+The full local audit reports 14 affected entries (5 high, 9 moderate); Railway's build
+reports 15 (5 high, 10 moderate). Capacitor CLI adds a development-only xcode → uuid
+advisory chain; npm proposes a CLI downgrade to 8.4.3, not automatically applied.
+Do not treat a successful mobile compilation as a clean development-tool audit.
+The original dependency update results below are retained as historical context.
+
 ## Results
 
 | Scope | Before compatible updates | After |
