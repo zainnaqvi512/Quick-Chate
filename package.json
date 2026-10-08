@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "overrides": {
+    "@grpc/grpc-js": "^1.14.5"
+  },
   "scripts": {
     "mobile:android": "node scripts/mobile.mjs android",
     "mobile:ios": "node scripts/mobile.mjs ios",
@@ -63,6 +66,8 @@
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
     "embla-carousel-react": "^8.6.0",
+    "firebase": "^13.0.0",
+    "firebase-admin": "^14.5.0",
     "hono": "^4.8.3",
     "input-otp": "^1.4.2",
     "libphonenumber-js": "^1.13.14",

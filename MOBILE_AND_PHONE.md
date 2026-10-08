@@ -11,14 +11,17 @@
 - Android and iOS bridges control communication audio. Proximity monitoring is enabled only for a voice call whose actual output is the earpiece. Speaker, video and external-headset routes disable it. Devices without a receiver/sensor cannot offer those features.
 - Browser builds use system output or a browser output picker where supported; they cannot claim native earpiece or proximity control.
 
-## SMS activation blocker
+## Firebase phone authentication (2026-10-08)
 
-In Railway's app service variables, securely configure:
-`OTP_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`, `APP_SECRET`, and `SMS_ALLOWED_PREFIXES` (initially `+92` for Pakistan testing).
+The web login now uses Firebase project `quick-chat-64f77`. Public client identifiers are in `shared/firebaseConfig.ts`; Analytics is not initialized. Firebase runs a visible reCAPTCHA challenge and delivers the SMS. The application exchanges the resulting ID token for its existing MySQL-backed session. The Admin SDK verifies Google's signature, issuer, audience and expiry; application checks require the phone provider, an E.164 phone number and authentication within five minutes. Email/password tokens and emulator tokens are rejected. The server uses only the verified phone claim, never a client-supplied phone number. Existing email-only sessions can link a phone without deleting their chats.
 
-Configure the Verify service's geographic permissions, fraud protection and billing controls in the provider account. Credentials must never be committed or pasted into chat. Live texts cost money and country/carrier coverage varies. No SMS provider was provisioned or funded by this change. No real SMS has been sent or verified. Phone-only enforcement means login and signup are unavailable until the provider is configured; there is no email fallback.
+No service-account private key is required for public-key ID token verification. Firebase revocation/disabled-user lookup is not performed: Firebase user deletion or disabling does not automatically revoke existing Quick Chat sessions. Quick Chat logout/session controls remain authoritative for those sessions.
 
-Challenges are signed, expire after ten minutes, bind linking to the existing account, and require provider approval for the same number. Resend and verification limits are enforced in memory for this single app replica. Production test OTPs remain disabled.
+Console prerequisites still require account-owner setup: enable Authentication's Phone provider, enable Blaze billing, allow the intended SMS regions (start with Pakistan), and authorize `quick-chat-preview-production.up.railway.app`. Use Firebase's provider-side abuse controls and SMS quotas. The UI's 60-second resend timer is a convenience, not a server security boundary. Real SMS delivery and completed sign-in have not yet been verified. No WhatsApp OTP integration is included.
+
+The legacy Twilio procedures remain inactive unless their environment is explicitly configured. The UI uses Firebase. There is no email or unverified phone fallback.
+
+The supplied configuration registers a web app only. Bundled Capacitor builds cannot use localhost web phone auth; they show a web sign-in link instead of a broken SMS form. Browser login does not log in the native app. Native Firebase integration remains blocked on Android/iOS app registration, platform config files, Android signing fingerprints and iOS APNs setup. Do not advertise native phone login as complete.
 
 ## Native projects
 

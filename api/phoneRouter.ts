@@ -5,11 +5,8 @@ import { createRouter, publicQuery } from "./middleware";
 import { sessionQuery, createSession, normalizePhone, safeUser } from "./auth";
 import { getDb } from "./queries/connection";
 import { users } from "../db/schema";
-import {
-  checkPhoneCode,
-  phoneVerificationReady,
-  requestPhoneCode,
-} from "./phoneVerification";
+import { verifyFirebasePhone } from "./firebasePhone";
+import { checkPhoneCode, requestPhoneCode } from "./phoneVerification";
 
 const phoneInput = z.object({
   countryCode: z.string().min(1).max(8),
@@ -20,7 +17,66 @@ const codeInput = z.object({
   code: z.string().regex(/^\d{4,10}$/),
 });
 export const phoneRouter = createRouter({
-  availability: publicQuery.query(() => ({ ready: phoneVerificationReady() })),
+  availability: publicQuery.query(() => ({
+    ready: true,
+    provider: "firebase" as const,
+  })),
+  firebaseVerify: publicQuery
+    .input(z.object({ idToken: z.string().min(1).max(8192) }))
+    .mutation(async ({ input, ctx }) => {
+      const phone = await verifyFirebasePhone(input.idToken);
+      const db = getDb();
+      await db
+        .insert(users)
+        .values({ phone, name: "", profileComplete: false })
+        .onDuplicateKeyUpdate({ set: { phone } });
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.phone, phone))
+        .limit(1);
+      return {
+        ...(await createSession(
+          user.id,
+          ctx.req.headers.get("user-agent") ?? undefined
+        )),
+        user: safeUser(user),
+      };
+    }),
+  firebaseLink: sessionQuery
+    .input(z.object({ idToken: z.string().min(1).max(8192) }))
+    .mutation(async ({ input, ctx }) => {
+      if (ctx.user.phone)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "This account already has a phone number.",
+        });
+      const phone = await verifyFirebasePhone(input.idToken);
+      const db = getDb();
+      try {
+        await db
+          .update(users)
+          .set({ phone })
+          .where(and(eq(users.id, ctx.user.id), isNull(users.phone)));
+      } catch {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message:
+            "That number cannot be linked. It may belong to another account.",
+        });
+      }
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, ctx.user.id))
+        .limit(1);
+      if (user.phone !== phone)
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Your account changed. Refresh and try again.",
+        });
+      return { ok: true };
+    }),
   request: publicQuery
     .input(phoneInput)
     .mutation(({ input }) =>
