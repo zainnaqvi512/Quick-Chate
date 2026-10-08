@@ -77,7 +77,9 @@ export function AttachmentPreview({
   error,
   onCancel,
   onSend,
+  allowOnce = true,
 }: {
+  allowOnce?: boolean;
   files: File[];
   busy: boolean;
   error: string;
@@ -86,11 +88,13 @@ export function AttachmentPreview({
 }) {
   const [once, setOnce] = useState(false);
   const [caption, setCaption] = useState("");
-  const eligible = files.every(
-    f =>
-      (f.type.startsWith("image/") && f.type !== "image/gif") ||
-      f.type.startsWith("video/")
-  );
+  const eligible =
+    allowOnce &&
+    files.every(
+      f =>
+        (f.type.startsWith("image/") && f.type !== "image/gif") ||
+        f.type.startsWith("video/")
+    );
   return (
     <Dialog
       open={files.length > 0}

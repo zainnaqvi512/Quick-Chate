@@ -20,6 +20,7 @@ import {
   getVisibleMessage,
   getVisibleMessages,
   retentionDeadlineForSend,
+  updateChatViewing,
 } from "./retention";
 import { runCleanupOnce } from "./expiration";
 import { storage } from "./lib/storage";
@@ -146,6 +147,67 @@ async function caller(userId: number) {
 }
 
 describe("Phone-required access and exact contact search", () => {
+  it("never-disappearing messages survive the hard cap and viewing but still honor clear", async () => {
+    const { id, conversationId } = await fixture("never");
+    await db
+      .update(schema.messages)
+      .set({ retentionDeadline: new Date(Date.now() - 1000) })
+      .where(eq(schema.messages.id, id));
+    await acknowledgeMessages([id], recipient, "viewed");
+    expect((await receipt(id)).expiresAt).toBeNull();
+    expect(await getVisibleMessage(id, recipient)).not.toBeNull();
+    await runCleanupOnce();
+    expect(await getVisibleMessage(id, sender)).not.toBeNull();
+    const viewer = await caller(recipient);
+    await viewer.conversations.clear({ id: conversationId });
+    expect(await getVisibleMessage(id, recipient)).toBeNull();
+  });
+  it("keeps viewed messages live in a chat and consumes only viewed content on exit", async () => {
+    const { id, conversationId } = await fixture("after_chat");
+    await acknowledgeMessages([id], recipient, "viewed");
+    expect(await getVisibleMessage(id, recipient)).not.toBeNull();
+    await updateChatViewing(conversationId, recipient, false);
+    expect((await receipt(id)).consumedAt).toBeNull();
+    const outsider = await caller(other);
+    await expect(
+      outsider.messages.chatViewing({ conversationId, leaving: true })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await updateChatViewing(conversationId, recipient, true);
+    expect(await getVisibleMessage(id, recipient)).toBeNull();
+    const unread = await fixture("after_chat");
+    await updateChatViewing(unread.conversationId, recipient, true);
+    expect(await getVisibleMessage(unread.id, recipient)).not.toBeNull();
+    await acknowledgeMessages([unread.id], recipient, "viewed");
+    await db
+      .update(schema.messageReceipts)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(schema.messageReceipts.messageId, unread.id));
+    await updateChatViewing(unread.conversationId, recipient, false);
+    expect(await getVisibleMessage(unread.id, recipient)).toBeNull();
+  });
+  it("stores favorites only for the requesting participant and deduplicates reports", async () => {
+    const { conversationId } = await fixture();
+    const owner = await caller(sender),
+      viewer = await caller(recipient);
+    await viewer.conversations.setFlags({ id: conversationId, favorite: true });
+    expect(
+      (await viewer.conversations.get({ id: conversationId })).favorite
+    ).toBe(true);
+    expect(
+      (await owner.conversations.get({ id: conversationId })).favorite
+    ).toBe(false);
+    await viewer.users.report({ userId: sender, reason: "Test report reason" });
+    await viewer.users.report({
+      userId: sender,
+      reason: "Updated test reason",
+    });
+    const reports = await db
+      .select()
+      .from(schema.userReports)
+      .where(eq(schema.userReports.reporterId, recipient));
+    expect(reports).toHaveLength(1);
+    expect(reports[0].reason).toBe("Updated test reason");
+  });
   it("enforces username discovery while preserving exact phone lookup", async () => {
     const client = await caller(sender);
     try {

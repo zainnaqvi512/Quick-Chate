@@ -1,3 +1,4 @@
+import { updateChatViewing } from "./retention";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, inArray, like } from "drizzle-orm";
@@ -170,10 +171,13 @@ async function shapeMessages(
       deletedForEveryone: m.deletedForEveryone,
       createdAt: m.createdAt,
       expirationMode: m.expirationMode,
-      expiresAt: mine
-        ? m.retentionDeadline
-        : (receipts.find(r => r.userId === meId)?.expiresAt ??
-          m.retentionDeadline),
+      expiresAt:
+        m.expirationMode === "never"
+          ? null
+          : mine
+            ? m.retentionDeadline
+            : (receipts.find(r => r.userId === meId)?.expiresAt ??
+              m.retentionDeadline),
       mine,
       status: mine ? status : undefined,
       starred: starredIds.has(m.id),
@@ -186,6 +190,14 @@ async function shapeMessages(
 }
 
 export const messagesRouter = createRouter({
+  chatViewing: authedQuery
+    .input(z.object({ conversationId: z.number(), leaving: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!(await getParticipant(input.conversationId, ctx.user.id)))
+        throw new TRPCError({ code: "FORBIDDEN" });
+      await updateChatViewing(input.conversationId, ctx.user.id, input.leaving);
+      return { ok: true };
+    }),
   // Fetches never constitute viewing. Clients explicitly acknowledge rendered messages.
   list: authedQuery
     .input(
@@ -286,7 +298,10 @@ export const messagesRouter = createRouter({
           input.forwardFromId,
           ctx.user.id
         );
-        if (!source || source.expirationMode === "after_view")
+        if (
+          !source ||
+          ["after_view", "after_chat"].includes(source.expirationMode)
+        )
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "This message cannot be forwarded",
@@ -308,7 +323,9 @@ export const messagesRouter = createRouter({
           .limit(1);
         retentionDeadline = new Date(
           Math.min(
-            source.retentionDeadline.getTime(),
+            source.expirationMode === "never"
+              ? retentionDeadlineForSend().getTime()
+              : source.retentionDeadline.getTime(),
             receipt?.expiresAt?.getTime() ?? Infinity
           )
         );
@@ -413,7 +430,11 @@ export const messagesRouter = createRouter({
           mediaUrl: input.mediaUrl ?? null,
           mediaMeta: input.mediaMeta ?? null,
           replyToId: input.replyToId ?? null,
-          expirationMode: input.viewOnce ? "after_view" : conv.expirationMode,
+          expirationMode: input.viewOnce
+            ? "after_view"
+            : input.forwardFromId && conv.expirationMode === "never"
+              ? "24h"
+              : conv.expirationMode,
           retentionDeadline,
         });
         const id = Number(

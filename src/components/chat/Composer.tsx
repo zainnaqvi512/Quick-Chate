@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { EmojiPicker, StickersPanel } from "./EmojiPicker";
+import { HoldVoice } from "./HoldVoice";
 import { AttachmentPreview } from "./AttachmentPreview";
 import { fileToBase64 } from "@/lib/format";
 import {
@@ -15,7 +16,6 @@ import {
   Image as ImageIcon,
   Loader2,
   MapPin,
-  Mic,
   Paperclip,
   Send,
   Smile,
@@ -44,17 +44,12 @@ export function Composer({
   const [gifQuery, setGifQuery] = useState("");
   const [gifs, setGifs] = useState<{ id: string; url: string }[]>([]);
   const [gifLoading, setGifLoading] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [recSeconds, setRecSeconds] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const sendingFiles = useRef(false);
   const gifRequest = useRef(0);
 
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const recStartRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const acceptRef = useRef("image/*");
   const typingThrottle = useRef(0);
@@ -69,16 +64,6 @@ export function Composer({
     onError: e => setError(e.message),
   });
   const upload = trpc.media.upload.useMutation();
-
-  useEffect(() => {
-    if (!recording) return;
-    const t = setInterval(
-      () =>
-        setRecSeconds(Math.floor((Date.now() - recStartRef.current) / 1000)),
-      250
-    );
-    return () => clearInterval(t);
-  }, [recording]);
 
   type MessageType = Parameters<typeof send.mutate>[0]["type"];
 
@@ -156,52 +141,6 @@ export function Composer({
       setUploading(false);
       sendingFiles.current = false;
     }
-  }
-
-  async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
-      chunksRef.current = [];
-      rec.ondataavailable = e => chunksRef.current.push(e.data);
-      rec.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, {
-          type: rec.mimeType || "audio/webm",
-        });
-        const duration = Math.round((Date.now() - recStartRef.current) / 1000);
-        if (duration < 1) return;
-        if (blob.size > 15 * 1024 * 1024) {
-          setError("Recording exceeds 15 MB. Record a shorter message.");
-          return;
-        }
-        setPendingFiles([
-          new File(
-            [blob],
-            `voice-${Date.now()}.${blob.type.includes("mp4") ? "m4a" : "webm"}`,
-            { type: blob.type }
-          ),
-        ]);
-      };
-      recorderRef.current = rec;
-      recStartRef.current = Date.now();
-      rec.start();
-      setRecording(true);
-    } catch {
-      setError("Microphone permission denied");
-    }
-  }
-
-  function stopRecording(cancel: boolean) {
-    const rec = recorderRef.current;
-    if (!rec) return;
-    if (cancel) {
-      rec.onstop = () => rec.stream.getTracks().forEach(t => t.stop());
-      rec.stop();
-    } else {
-      rec.stop();
-    }
-    setRecording(false);
   }
 
   async function searchGifs(q: string) {
@@ -292,312 +231,290 @@ export function Composer({
           </button>
         </div>
       )}
-      {recording ? (
-        <div className="flex items-center gap-3 py-1.5 px-2">
-          <span className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
-          <span className="text-sm font-mono">
-            {Math.floor(recSeconds / 60)}:
-            {String(recSeconds % 60).padStart(2, "0")}
-          </span>
-          <span className="text-sm text-muted-foreground flex-1">
-            Recording…
-          </span>
-          <button
-            className="p-2 rounded-full hover:bg-accent text-muted-foreground"
-            onClick={() => stopRecording(true)}
-            aria-label="Cancel recording"
+      <div className="flex items-end gap-1">
+        {/* Emoji */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+              aria-label="Emoji"
+            >
+              <Smile className="h-5 w-5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="p-0 w-auto" align="start" side="top">
+            <EmojiPicker onPick={e => setText(t => t + e)} />
+          </PopoverContent>
+        </Popover>
+
+        {/* Stickers */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+              aria-label="Stickers"
+            >
+              <Sticker className="h-5 w-5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="p-0 w-auto" align="start" side="top">
+            <StickersPanel
+              onPick={s =>
+                doSend("sticker", {
+                  content: s,
+                  mediaUrl: undefined,
+                  mediaMeta: JSON.stringify({ sticker: s }),
+                })
+              }
+            />
+          </PopoverContent>
+        </Popover>
+
+        {/* GIF */}
+        <Popover
+          open={gifOpen}
+          onOpenChange={o => {
+            setGifOpen(o);
+            if (o) searchGifs("");
+          }}
+        >
+          <PopoverTrigger asChild>
+            <button
+              className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+              aria-label="GIF"
+            >
+              <span className="text-[10px] font-bold border rounded px-1">
+                GIF
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            className="w-80 max-w-[calc(100vw-24px)] max-h-[65dvh] overflow-y-auto"
+            align="start"
+            side="top"
           >
-            <X className="h-5 w-5" />
-          </button>
+            <>
+              <input
+                className="w-full rounded-md border px-3 py-1.5 text-sm mb-2 bg-background"
+                placeholder="Search GIFs"
+                value={gifQuery}
+                onChange={e => {
+                  setGifQuery(e.target.value);
+                  searchGifs(e.target.value);
+                }}
+                aria-label="Search GIFs"
+              />
+              {gifLoading ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
+                  {gifs.map(g => (
+                    <button
+                      key={g.id}
+                      disabled={uploading}
+                      onClick={async () => {
+                        setUploading(true);
+                        setError("");
+                        try {
+                          const response = await fetch(g.url, {
+                            signal: AbortSignal.timeout(15000),
+                          });
+                          if (!response.ok)
+                            throw new Error(
+                              "GIF could not be loaded. Try a different GIF."
+                            );
+                          const blob = await response.blob();
+                          if (blob.size > 15 * 1024 * 1024)
+                            throw new Error("GIF exceeds the 15 MB limit.");
+                          setPendingFiles([
+                            new File([blob], `${g.id}.gif`, {
+                              type: "image/gif",
+                            }),
+                          ]);
+                          setGifOpen(false);
+                        } catch (e) {
+                          setError(
+                            e instanceof Error
+                              ? e.message
+                              : "GIF failed to load"
+                          );
+                        } finally {
+                          setUploading(false);
+                        }
+                      }}
+                    >
+                      <img
+                        src={g.url}
+                        alt="GIF"
+                        className="rounded w-full h-20 object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
+                  {gifs.length === 0 && (
+                    <p className="col-span-3 p-3 text-sm">
+                      No GIFs found. Try another word or attach a GIF from your
+                      device.
+                    </p>
+                  )}
+                </div>
+              )}
+            </>
+            <p className="text-xs text-muted-foreground mt-2">
+              {GIPHY_KEY
+                ? "Powered by GIPHY"
+                : "Quick Chat GIFs · Search Hello, LOL, Thanks, Wow, Yes or No"}
+            </p>
+          </PopoverContent>
+        </Popover>
+
+        {/* Attachments */}
+        <Popover open={attachOpen} onOpenChange={setAttachOpen}>
+          <PopoverTrigger asChild>
+            <button
+              className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+              aria-label="Attach"
+            >
+              <Paperclip className="h-5 w-5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-1" align="start" side="top">
+            <button
+              className="menu-item"
+              onClick={() => {
+                acceptRef.current = "image/*,video/*";
+                fileInputRef.current?.setAttribute("accept", acceptRef.current);
+                fileInputRef.current?.click();
+                setAttachOpen(false);
+              }}
+            >
+              <ImageIcon className="h-4 w-4 text-sky-500" /> Photos & videos
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                acceptRef.current = "image/*";
+                fileInputRef.current?.setAttribute("accept", acceptRef.current);
+                fileInputRef.current?.setAttribute("capture", "environment");
+                fileInputRef.current?.click();
+                setAttachOpen(false);
+              }}
+            >
+              <Camera className="h-4 w-4 text-emerald-500" /> Camera
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                acceptRef.current =
+                  ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,application/*";
+                fileInputRef.current?.setAttribute("accept", acceptRef.current);
+                fileInputRef.current?.click();
+                setAttachOpen(false);
+              }}
+            >
+              <FileText className="h-4 w-4 text-amber-500" /> Document
+            </button>
+            <button className="menu-item" onClick={shareLocation}>
+              <MapPin className="h-4 w-4 text-rose-500" /> Location
+            </button>
+            {contactList.length > 0 && (
+              <div className="border-t mt-1 pt-1">
+                <p className="text-[11px] text-muted-foreground px-2 pb-1 flex items-center gap-1">
+                  <ContactIcon className="h-3 w-3" /> Share contact
+                </p>
+                {contactList.slice(0, 5).map(c => (
+                  <button
+                    key={c.userId}
+                    className="menu-item"
+                    onClick={() => {
+                      doSend("contact", {
+                        mediaMeta: JSON.stringify({
+                          name: c.name,
+                          phone: c.phone,
+                        }),
+                      });
+                      setAttachOpen(false);
+                    }}
+                  >
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={e => {
+            handleFiles(e.target.files);
+            e.target.value = "";
+            fileInputRef.current?.removeAttribute("capture");
+          }}
+        />
+
+        <textarea
+          value={text}
+          onChange={e => {
+            setText(e.target.value);
+            if (Date.now() - typingThrottle.current > 2500) {
+              typingThrottle.current = Date.now();
+              onTyping();
+            }
+          }}
+          onKeyDown={e => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              submitText();
+            }
+          }}
+          placeholder="Type a message"
+          rows={1}
+          aria-label="Message input"
+          className="flex-1 resize-none rounded-2xl border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 max-h-32"
+        />
+
+        {uploading ? (
+          <span className="p-2.5">
+            <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
+          </span>
+        ) : text.trim() ? (
           <button
-            className="p-2.5 rounded-full bg-sky-500 text-white hover:bg-sky-600"
-            onClick={() => stopRecording(false)}
-            aria-label="Preview voice message"
+            className="p-2.5 rounded-full bg-sky-500 text-white hover:bg-sky-600 transition-colors"
+            onClick={submitText}
+            aria-label="Send message"
           >
             <Send className="h-5 w-5" />
           </button>
-        </div>
-      ) : (
-        <div className="flex items-end gap-1">
-          {/* Emoji */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
-                aria-label="Emoji"
-              >
-                <Smile className="h-5 w-5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="p-0 w-auto" align="start" side="top">
-              <EmojiPicker onPick={e => setText(t => t + e)} />
-            </PopoverContent>
-          </Popover>
-
-          {/* Stickers */}
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
-                aria-label="Stickers"
-              >
-                <Sticker className="h-5 w-5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="p-0 w-auto" align="start" side="top">
-              <StickersPanel
-                onPick={s =>
-                  doSend("sticker", {
-                    content: s,
-                    mediaUrl: undefined,
-                    mediaMeta: JSON.stringify({ sticker: s }),
-                  })
-                }
-              />
-            </PopoverContent>
-          </Popover>
-
-          {/* GIF */}
-          <Popover
-            open={gifOpen}
-            onOpenChange={o => {
-              setGifOpen(o);
-              if (o) searchGifs("");
-            }}
-          >
-            <PopoverTrigger asChild>
-              <button
-                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
-                aria-label="GIF"
-              >
-                <span className="text-[10px] font-bold border rounded px-1">
-                  GIF
-                </span>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent
-              className="w-80 max-w-[calc(100vw-24px)] max-h-[65dvh] overflow-y-auto"
-              align="start"
-              side="top"
-            >
-              <>
-                <input
-                  className="w-full rounded-md border px-3 py-1.5 text-sm mb-2 bg-background"
-                  placeholder="Search GIFs"
-                  value={gifQuery}
-                  onChange={e => {
-                    setGifQuery(e.target.value);
-                    searchGifs(e.target.value);
-                  }}
-                  aria-label="Search GIFs"
-                />
-                {gifLoading ? (
-                  <div className="flex justify-center py-6">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
-                    {gifs.map(g => (
-                      <button
-                        key={g.id}
-                        disabled={uploading}
-                        onClick={async () => {
-                          setUploading(true);
-                          setError("");
-                          try {
-                            const response = await fetch(g.url, {
-                              signal: AbortSignal.timeout(15000),
-                            });
-                            if (!response.ok)
-                              throw new Error(
-                                "GIF could not be loaded. Try a different GIF."
-                              );
-                            const blob = await response.blob();
-                            if (blob.size > 15 * 1024 * 1024)
-                              throw new Error("GIF exceeds the 15 MB limit.");
-                            setPendingFiles([
-                              new File([blob], `${g.id}.gif`, {
-                                type: "image/gif",
-                              }),
-                            ]);
-                            setGifOpen(false);
-                          } catch (e) {
-                            setError(
-                              e instanceof Error
-                                ? e.message
-                                : "GIF failed to load"
-                            );
-                          } finally {
-                            setUploading(false);
-                          }
-                        }}
-                      >
-                        <img
-                          src={g.url}
-                          alt="GIF"
-                          className="rounded w-full h-20 object-cover"
-                          loading="lazy"
-                        />
-                      </button>
-                    ))}
-                    {gifs.length === 0 && (
-                      <p className="col-span-3 p-3 text-sm">
-                        No GIFs found. Try another word or attach a GIF from
-                        your device.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </>
-              <p className="text-xs text-muted-foreground mt-2">
-                {GIPHY_KEY
-                  ? "Powered by GIPHY"
-                  : "Quick Chat GIFs · Search Hello, LOL, Thanks, Wow, Yes or No"}
-              </p>
-            </PopoverContent>
-          </Popover>
-
-          {/* Attachments */}
-          <Popover open={attachOpen} onOpenChange={setAttachOpen}>
-            <PopoverTrigger asChild>
-              <button
-                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
-                aria-label="Attach"
-              >
-                <Paperclip className="h-5 w-5" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-56 p-1" align="start" side="top">
-              <button
-                className="menu-item"
-                onClick={() => {
-                  acceptRef.current = "image/*,video/*";
-                  fileInputRef.current?.setAttribute(
-                    "accept",
-                    acceptRef.current
-                  );
-                  fileInputRef.current?.click();
-                  setAttachOpen(false);
-                }}
-              >
-                <ImageIcon className="h-4 w-4 text-sky-500" /> Photos & videos
-              </button>
-              <button
-                className="menu-item"
-                onClick={() => {
-                  acceptRef.current = "image/*";
-                  fileInputRef.current?.setAttribute(
-                    "accept",
-                    acceptRef.current
-                  );
-                  fileInputRef.current?.setAttribute("capture", "environment");
-                  fileInputRef.current?.click();
-                  setAttachOpen(false);
-                }}
-              >
-                <Camera className="h-4 w-4 text-emerald-500" /> Camera
-              </button>
-              <button
-                className="menu-item"
-                onClick={() => {
-                  acceptRef.current =
-                    ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,application/*";
-                  fileInputRef.current?.setAttribute(
-                    "accept",
-                    acceptRef.current
-                  );
-                  fileInputRef.current?.click();
-                  setAttachOpen(false);
-                }}
-              >
-                <FileText className="h-4 w-4 text-amber-500" /> Document
-              </button>
-              <button className="menu-item" onClick={shareLocation}>
-                <MapPin className="h-4 w-4 text-rose-500" /> Location
-              </button>
-              {contactList.length > 0 && (
-                <div className="border-t mt-1 pt-1">
-                  <p className="text-[11px] text-muted-foreground px-2 pb-1 flex items-center gap-1">
-                    <ContactIcon className="h-3 w-3" /> Share contact
-                  </p>
-                  {contactList.slice(0, 5).map(c => (
-                    <button
-                      key={c.userId}
-                      className="menu-item"
-                      onClick={() => {
-                        doSend("contact", {
-                          mediaMeta: JSON.stringify({
-                            name: c.name,
-                            phone: c.phone,
-                          }),
-                        });
-                        setAttachOpen(false);
-                      }}
-                    >
-                      <span className="truncate">{c.name}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </PopoverContent>
-          </Popover>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={e => {
-              handleFiles(e.target.files);
-              e.target.value = "";
-              fileInputRef.current?.removeAttribute("capture");
+        ) : (
+          <HoldVoice
+            disabled={uploading || send.isPending}
+            onSend={async file => {
+              const res = await upload.mutateAsync({
+                name: file.name,
+                contentBase64: await fileToBase64(file),
+                contentType: file.type,
+              });
+              await send.mutateAsync({
+                conversationId,
+                type: "audio",
+                mediaUrl: res.key,
+                mediaMeta: JSON.stringify({
+                  name: file.name,
+                  size: file.size,
+                  mime: file.type,
+                }),
+                replyToId: replyToId ?? undefined,
+              });
             }}
           />
-
-          <textarea
-            value={text}
-            onChange={e => {
-              setText(e.target.value);
-              if (Date.now() - typingThrottle.current > 2500) {
-                typingThrottle.current = Date.now();
-                onTyping();
-              }
-            }}
-            onKeyDown={e => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submitText();
-              }
-            }}
-            placeholder="Type a message"
-            rows={1}
-            aria-label="Message input"
-            className="flex-1 resize-none rounded-2xl border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 max-h-32"
-          />
-
-          {uploading ? (
-            <span className="p-2.5">
-              <Loader2 className="h-5 w-5 animate-spin text-sky-500" />
-            </span>
-          ) : text.trim() ? (
-            <button
-              className="p-2.5 rounded-full bg-sky-500 text-white hover:bg-sky-600 transition-colors"
-              onClick={submitText}
-              aria-label="Send message"
-            >
-              <Send className="h-5 w-5" />
-            </button>
-          ) : (
-            <button
-              className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
-              onClick={startRecording}
-              aria-label="Record voice message"
-            >
-              <Mic className="h-5 w-5" />
-            </button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

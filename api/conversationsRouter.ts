@@ -15,12 +15,20 @@ import {
   contacts,
 } from "../db/schema";
 import { getParticipant, participantExpired } from "./expiration";
-import { EXPIRATION_MODES, getVisibleMessages, visibleMessagePredicate } from "./retention";
+import {
+  EXPIRATION_MODES,
+  getVisibleMessages,
+  visibleMessagePredicate,
+} from "./retention";
 import { publicUser } from "./usersRouter";
 
 async function requireMembership(convId: number, userId: number) {
   const p = await getParticipant(convId, userId);
-  if (!p) throw new TRPCError({ code: "FORBIDDEN", message: "Not a participant of this conversation" });
+  if (!p)
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Not a participant of this conversation",
+    });
   return p;
 }
 
@@ -32,29 +40,44 @@ async function isBlockedBetween(a: number, b: number): Promise<boolean> {
     .where(
       or(
         and(eq(blockedUsers.blockerId, a), eq(blockedUsers.blockedId, b)),
-        and(eq(blockedUsers.blockerId, b), eq(blockedUsers.blockedId, a)),
-      ),
+        and(eq(blockedUsers.blockerId, b), eq(blockedUsers.blockedId, a))
+      )
     )
     .limit(1);
   return rows.length > 0;
 }
 
-async function convDisplay(conv: typeof conversations.$inferSelect, meId: number) {
+async function convDisplay(
+  conv: typeof conversations.$inferSelect,
+  meId: number
+) {
   const db = getDb();
   if (conv.type === "group") {
-    return { title: conv.name || "Group", avatarUrl: conv.avatarUrl, otherUser: null as null | ReturnType<typeof publicUser> };
+    return {
+      title: conv.name || "Group",
+      avatarUrl: conv.avatarUrl,
+      otherUser: null as null | ReturnType<typeof publicUser>,
+    };
   }
   const parts = await db
     .select()
     .from(conversationParticipants)
     .where(eq(conversationParticipants.conversationId, conv.id));
-  const otherId = parts.find((p) => p.userId !== meId)?.userId;
+  const otherId = parts.find(p => p.userId !== meId)?.userId;
   if (!otherId) return { title: "Unknown", avatarUrl: null, otherUser: null };
   const u = await db.select().from(users).where(eq(users.id, otherId)).limit(1);
   if (!u[0]) return { title: "Unknown", avatarUrl: null, otherUser: null };
-  const contact = await db.select().from(contacts).where(and(eq(contacts.ownerId,otherId),eq(contacts.contactUserId,meId))).limit(1);
+  const contact = await db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.ownerId, otherId), eq(contacts.contactUserId, meId)))
+    .limit(1);
   const pub = publicUser(u[0], contact.length > 0);
-  return { title: pub.name || pub.username || 'User', avatarUrl: pub.avatarUrl, otherUser: pub };
+  return {
+    title: pub.name || pub.username || "User",
+    avatarUrl: pub.avatarUrl,
+    otherUser: pub,
+  };
 }
 
 async function lastMessagePreview(convId: number, userId: number) {
@@ -70,21 +93,33 @@ export const conversationsRouter = createRouter({
       .where(eq(conversationParticipants.userId, ctx.user.id));
     const result = [];
     for (const p of myParts) {
-      const convRows = await db.select().from(conversations).where(eq(conversations.id, p.conversationId)).limit(1);
+      const convRows = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, p.conversationId))
+        .limit(1);
       const conv = convRows[0];
       if (!conv) continue;
       const expired = participantExpired(p);
       const display = await convDisplay(conv, ctx.user.id);
-      const last = expired ? null : await lastMessagePreview(conv.id, ctx.user.id);
-      const unreadRows = await db.select({id: messages.id}).from(messages).where(and(
-        eq(messages.conversationId,conv.id), visibleMessagePredicate(ctx.user.id),
-        sql`EXISTS (SELECT 1 FROM message_receipts r WHERE r.message_id = ${messages.id} AND r.user_id = ${ctx.user.id} AND r.viewed_at IS NULL)`
-      ));
+      const last = expired
+        ? null
+        : await lastMessagePreview(conv.id, ctx.user.id);
+      const unreadRows = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conv.id),
+            visibleMessagePredicate(ctx.user.id),
+            sql`EXISTS (SELECT 1 FROM message_receipts r WHERE r.message_id = ${messages.id} AND r.user_id = ${ctx.user.id} AND r.viewed_at IS NULL)`
+          )
+        );
       const unread = unreadRows.length;
       result.push({
         id: conv.id,
         type: conv.type,
-      expirationMode: conv.expirationMode,
+        expirationMode: conv.expirationMode,
         title: display.title,
         avatarUrl: display.avatarUrl,
         otherUser: display.otherUser,
@@ -92,125 +127,191 @@ export const conversationsRouter = createRouter({
         pinned: p.pinned,
         archived: p.archived,
         muted: p.muted,
+        favorite: p.favorite,
         expiresAt: p.expiresAt,
         expired,
         unread,
         lastMessage: last
-          ? { type: last.type, content: last.expirationMode === "after_view" ? "View-once message" : last.content, senderId: last.senderId, createdAt: last.createdAt }
+          ? {
+              type: last.type,
+              content:
+                last.expirationMode === "after_view"
+                  ? "View-once message"
+                  : last.content,
+              senderId: last.senderId,
+              createdAt: last.createdAt,
+            }
           : null,
         createdAt: conv.createdAt,
       });
     }
     result.sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
-      const ta = a.lastMessage?.createdAt ? new Date(a.lastMessage.createdAt).getTime() : 0;
-      const tb = b.lastMessage?.createdAt ? new Date(b.lastMessage.createdAt).getTime() : 0;
+      const ta = a.lastMessage?.createdAt
+        ? new Date(a.lastMessage.createdAt).getTime()
+        : 0;
+      const tb = b.lastMessage?.createdAt
+        ? new Date(b.lastMessage.createdAt).getTime()
+        : 0;
       return tb - ta;
     });
     return result;
   }),
 
-  createDirect: authedQuery.input(z.object({ userId: z.number() })).mutation(async ({ ctx, input }) => {
-    if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot chat with yourself" });
-    if (await isBlockedBetween(ctx.user.id,input.userId)) throw new TRPCError({code:'FORBIDDEN'});
-    const db = getDb();
-    const target = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
-    if (!target[0]) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
-    const [a, b] = [ctx.user.id, input.userId].sort((x, y) => x - y);
-    const directKey = `${a}:${b}`;
-    const existing = await db.select().from(conversations).where(eq(conversations.directKey, directKey)).limit(1);
-    if (existing[0]) {
-      // ensure both participant rows exist (conversation shell may have been purged)
-      const parts = await db
+  createDirect: authedQuery
+    .input(z.object({ userId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.user.id)
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot chat with yourself",
+        });
+      if (await isBlockedBetween(ctx.user.id, input.userId))
+        throw new TRPCError({ code: "FORBIDDEN" });
+      const db = getDb();
+      const target = await db
         .select()
-        .from(conversationParticipants)
-        .where(eq(conversationParticipants.conversationId, existing[0].id));
-      const have = new Set(parts.map((p) => p.userId));
-      for (const uid of [a, b]) {
-        if (!have.has(uid))
-          await db.insert(conversationParticipants).values({ conversationId: existing[0].id, userId: uid });
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .limit(1);
+      if (!target[0])
+        throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+      const [a, b] = [ctx.user.id, input.userId].sort((x, y) => x - y);
+      const directKey = `${a}:${b}`;
+      const existing = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.directKey, directKey))
+        .limit(1);
+      if (existing[0]) {
+        // ensure both participant rows exist (conversation shell may have been purged)
+        const parts = await db
+          .select()
+          .from(conversationParticipants)
+          .where(eq(conversationParticipants.conversationId, existing[0].id));
+        const have = new Set(parts.map(p => p.userId));
+        for (const uid of [a, b]) {
+          if (!have.has(uid))
+            await db
+              .insert(conversationParticipants)
+              .values({ conversationId: existing[0].id, userId: uid });
+        }
+        return { id: existing[0].id };
       }
-      return { id: existing[0].id };
-    }
-    const inserted = await db
-      .insert(conversations)
-      .values({ type: "direct", directKey, createdBy: ctx.user.id });
-    const convId = Number((inserted as unknown as [{ insertId: number }])[0].insertId);
-    await db.insert(conversationParticipants).values([
-      { conversationId: convId, userId: a },
-      { conversationId: convId, userId: b },
-    ]);
-    return { id: convId };
-  }),
+      const inserted = await db
+        .insert(conversations)
+        .values({ type: "direct", directKey, createdBy: ctx.user.id });
+      const convId = Number(
+        (inserted as unknown as [{ insertId: number }])[0].insertId
+      );
+      await db.insert(conversationParticipants).values([
+        { conversationId: convId, userId: a },
+        { conversationId: convId, userId: b },
+      ]);
+      return { id: convId };
+    }),
 
   createGroup: authedQuery
-    .input(z.object({ name: z.string().min(1).max(128), memberIds: z.array(z.number()).min(1).max(256) }))
+    .input(
+      z.object({
+        name: z.string().min(1).max(128),
+        memberIds: z.array(z.number()).min(1).max(256),
+      })
+    )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
       const inserted = await db
         .insert(conversations)
         .values({ type: "group", name: input.name, createdBy: ctx.user.id });
-      const convId = Number((inserted as unknown as [{ insertId: number }])[0].insertId);
+      const convId = Number(
+        (inserted as unknown as [{ insertId: number }])[0].insertId
+      );
       const ids = [...new Set([ctx.user.id, ...input.memberIds])];
       await db.insert(conversationParticipants).values(
-        ids.map((uid) => ({
+        ids.map(uid => ({
           conversationId: convId,
           userId: uid,
           role: uid === ctx.user.id ? ("owner" as const) : ("member" as const),
-        })),
+        }))
       );
       return { id: convId };
     }),
 
-  get: authedQuery.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
-    const db = getDb();
-    const p = await requireMembership(input.id, ctx.user.id);
-    const convRows = await db.select().from(conversations).where(eq(conversations.id, input.id)).limit(1);
-    const conv = convRows[0];
-    if (!conv) throw new TRPCError({ code: "NOT_FOUND", message: "Conversation not found" });
-    const display = await convDisplay(conv, ctx.user.id);
-    const parts = await db
-      .select()
-      .from(conversationParticipants)
-      .where(eq(conversationParticipants.conversationId, conv.id));
-    const participants = [];
-    for (const part of parts) {
-      const u = await db.select().from(users).where(eq(users.id, part.userId)).limit(1);
-      if (u[0])
-        participants.push({
-          user: publicUser(u[0], false),
-          role: part.role,
-          lastReadAt: null,
-          expiresAt: null,
+  get: authedQuery
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const p = await requireMembership(input.id, ctx.user.id);
+      const convRows = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, input.id))
+        .limit(1);
+      const conv = convRows[0];
+      if (!conv)
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Conversation not found",
         });
-    }
-    return {
-      id: conv.id,
-      type: conv.type,
-      expirationMode: conv.expirationMode,
-      title: display.title,
-      avatarUrl: display.avatarUrl,
-      description: conv.description,
-      otherUser: display.otherUser,
-      myRole: p.role,
-      myExpiresAt: p.expiresAt,
-      expired: participantExpired(p),
-      pinned: p.pinned,
-      archived: p.archived,
-      muted: p.muted,
-      participants,
-      createdAt: conv.createdAt,
-    };
-  }),
+      const display = await convDisplay(conv, ctx.user.id);
+      const parts = await db
+        .select()
+        .from(conversationParticipants)
+        .where(eq(conversationParticipants.conversationId, conv.id));
+      const participants = [];
+      for (const part of parts) {
+        const u = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, part.userId))
+          .limit(1);
+        if (u[0])
+          participants.push({
+            user: publicUser(u[0], false),
+            role: part.role,
+            lastReadAt: null,
+            expiresAt: null,
+          });
+      }
+      return {
+        id: conv.id,
+        type: conv.type,
+        expirationMode: conv.expirationMode,
+        title: display.title,
+        avatarUrl: display.avatarUrl,
+        description: conv.description,
+        otherUser: display.otherUser,
+        myRole: p.role,
+        myExpiresAt: p.expiresAt,
+        expired: participantExpired(p),
+        pinned: p.pinned,
+        archived: p.archived,
+        muted: p.muted,
+        favorite: p.favorite,
+        participants,
+        createdAt: conv.createdAt,
+      };
+    }),
 
-  setExpiration: authedQuery.input(z.object({ id: z.number(), mode: z.enum(EXPIRATION_MODES) }))
-    .mutation(async ({ctx, input}) => {
+  setExpiration: authedQuery
+    .input(z.object({ id: z.number(), mode: z.enum(EXPIRATION_MODES) }))
+    .mutation(async ({ ctx, input }) => {
       const p = await requireMembership(input.id, ctx.user.id);
       const db = getDb();
-      const [conv] = await db.select().from(conversations).where(eq(conversations.id, input.id));
-      if (conv.type === "group" && p.role === "member") throw new TRPCError({code: "FORBIDDEN", message: "Group admins set the timer"});
-      await db.update(conversations).set({ expirationMode: input.mode }).where(eq(conversations.id, input.id));
-      return {ok:true};
+      const [conv] = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, input.id));
+      if (conv.type === "group" && p.role === "member")
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Group admins set the timer",
+        });
+      await db
+        .update(conversations)
+        .set({ expirationMode: input.mode })
+        .where(eq(conversations.id, input.id));
+      return { ok: true };
     }),
 
   setFlags: authedQuery
@@ -220,7 +321,8 @@ export const conversationsRouter = createRouter({
         pinned: z.boolean().optional(),
         archived: z.boolean().optional(),
         muted: z.boolean().optional(),
-      }),
+        favorite: z.boolean().optional(),
+      })
     )
     .mutation(async ({ ctx, input }) => {
       await requireMembership(input.id, ctx.user.id);
@@ -228,6 +330,7 @@ export const conversationsRouter = createRouter({
       const set: Record<string, boolean> = {};
       if (input.pinned !== undefined) set.pinned = input.pinned;
       if (input.archived !== undefined) set.archived = input.archived;
+      if (input.favorite !== undefined) set.favorite = input.favorite;
       if (input.muted !== undefined) set.muted = input.muted;
       if (Object.keys(set).length === 0) return { ok: true };
       await db
@@ -236,37 +339,46 @@ export const conversationsRouter = createRouter({
         .where(
           and(
             eq(conversationParticipants.conversationId, input.id),
-            eq(conversationParticipants.userId, ctx.user.id),
-          ),
+            eq(conversationParticipants.userId, ctx.user.id)
+          )
         );
       return { ok: true };
     }),
 
-  clear: authedQuery.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
-    await requireMembership(input.id, ctx.user.id);
-    const db = getDb();
-    await db
-      .update(conversationParticipants)
-      .set({ clearedAt: new Date() })
-      .where(
-        and(
-          eq(conversationParticipants.conversationId, input.id),
-          eq(conversationParticipants.userId, ctx.user.id),
-        ),
-      );
-    return { ok: true };
-  }),
+  clear: authedQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      await requireMembership(input.id, ctx.user.id);
+      const db = getDb();
+      await db
+        .update(conversationParticipants)
+        .set({ clearedAt: new Date() })
+        .where(
+          and(
+            eq(conversationParticipants.conversationId, input.id),
+            eq(conversationParticipants.userId, ctx.user.id)
+          )
+        );
+      return { ok: true };
+    }),
 
   addMember: authedQuery
     .input(z.object({ id: z.number(), userId: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const me = await requireMembership(input.id, ctx.user.id);
-      if (me.role === "member") throw new TRPCError({ code: "FORBIDDEN", message: "Admins only" });
+      if (me.role === "member")
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admins only" });
       const db = getDb();
-      const [conv] = await db.select().from(conversations).where(eq(conversations.id,input.id));
-      if (conv?.type !== "group") throw new TRPCError({code:"BAD_REQUEST"});
-      const [user] = await db.select().from(users).where(eq(users.id,input.userId));
-      if (!user) throw new TRPCError({code:"NOT_FOUND"});
+      const [conv] = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, input.id));
+      if (conv?.type !== "group") throw new TRPCError({ code: "BAD_REQUEST" });
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, input.userId));
+      if (!user) throw new TRPCError({ code: "NOT_FOUND" });
       await db
         .insert(conversationParticipants)
         .values({ conversationId: input.id, userId: input.userId })
@@ -281,22 +393,38 @@ export const conversationsRouter = createRouter({
       if (me.role === "member" && input.userId !== ctx.user.id)
         throw new TRPCError({ code: "FORBIDDEN", message: "Admins only" });
       const db = getDb();
-      const [conv] = await db.select().from(conversations).where(eq(conversations.id,input.id));
-      const target = await getParticipant(input.id,input.userId);
-      if (conv?.type !== "group" || (target?.role === "owner" && me.role !== "owner")) throw new TRPCError({code:"FORBIDDEN"});
-      if (target?.role === "owner") throw new TRPCError({code:"BAD_REQUEST",message:"Owner transfer is required before leaving"});
+      const [conv] = await db
+        .select()
+        .from(conversations)
+        .where(eq(conversations.id, input.id));
+      const target = await getParticipant(input.id, input.userId);
+      if (
+        conv?.type !== "group" ||
+        (target?.role === "owner" && me.role !== "owner")
+      )
+        throw new TRPCError({ code: "FORBIDDEN" });
+      if (target?.role === "owner")
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Owner transfer is required before leaving",
+        });
       // Permanent revocation for the old recipient snapshot, including later rejoin.
-      await db.update(messageReceipts).set({consumedAt:new Date(),expiresAt:new Date()}).where(and(
-        eq(messageReceipts.userId,input.userId),
-        sql`${messageReceipts.messageId} IN (SELECT id FROM messages WHERE conversation_id = ${input.id})`
-      ));
+      await db
+        .update(messageReceipts)
+        .set({ consumedAt: new Date(), expiresAt: new Date() })
+        .where(
+          and(
+            eq(messageReceipts.userId, input.userId),
+            sql`${messageReceipts.messageId} IN (SELECT id FROM messages WHERE conversation_id = ${input.id})`
+          )
+        );
       await db
         .delete(conversationParticipants)
         .where(
           and(
             eq(conversationParticipants.conversationId, input.id),
-            eq(conversationParticipants.userId, input.userId),
-          ),
+            eq(conversationParticipants.userId, input.userId)
+          )
         );
       return { ok: true };
     }),
@@ -307,16 +435,20 @@ export const conversationsRouter = createRouter({
         id: z.number(),
         name: z.string().min(1).max(128).optional(),
         description: z.string().max(512).optional(),
-      }),
+      })
     )
     .mutation(async ({ ctx, input }) => {
       const me = await requireMembership(input.id, ctx.user.id);
-      if (me.role === "member") throw new TRPCError({ code: "FORBIDDEN", message: "Admins only" });
+      if (me.role === "member")
+        throw new TRPCError({ code: "FORBIDDEN", message: "Admins only" });
       const db = getDb();
       const set: Record<string, string> = {};
       if (input.name) set.name = input.name;
       if (input.description !== undefined) set.description = input.description;
-      await db.update(conversations).set(set).where(eq(conversations.id, input.id));
+      await db
+        .update(conversations)
+        .set(set)
+        .where(eq(conversations.id, input.id));
       return { ok: true };
     }),
 
@@ -327,27 +459,42 @@ export const conversationsRouter = createRouter({
       const db = getDb();
       await db
         .insert(typingStates)
-        .values({ conversationId: input.id, userId: ctx.user.id, updatedAt: new Date() })
+        .values({
+          conversationId: input.id,
+          userId: ctx.user.id,
+          updatedAt: new Date(),
+        })
         .onDuplicateKeyUpdate({ set: { updatedAt: new Date() } });
       return { ok: true };
     }),
 
-  typingList: authedQuery.input(z.object({ id: z.number() })).query(async ({ ctx, input }) => {
-    await requireMembership(input.id, ctx.user.id);
-    const db = getDb();
-    const cutoff = new Date(Date.now() - 6000);
-    const rows = await db
-      .select()
-      .from(typingStates)
-      .where(and(eq(typingStates.conversationId, input.id), gt(typingStates.updatedAt, cutoff)));
-    const out = [];
-    for (const r of rows) {
-      if (r.userId === ctx.user.id) continue;
-      const u = await db.select().from(users).where(eq(users.id, r.userId)).limit(1);
-      if (u[0]) out.push({ userId: r.userId, name: u[0].name || u[0].phone });
-    }
-    return out;
-  }),
+  typingList: authedQuery
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      await requireMembership(input.id, ctx.user.id);
+      const db = getDb();
+      const cutoff = new Date(Date.now() - 6000);
+      const rows = await db
+        .select()
+        .from(typingStates)
+        .where(
+          and(
+            eq(typingStates.conversationId, input.id),
+            gt(typingStates.updatedAt, cutoff)
+          )
+        );
+      const out = [];
+      for (const r of rows) {
+        if (r.userId === ctx.user.id) continue;
+        const u = await db
+          .select()
+          .from(users)
+          .where(eq(users.id, r.userId))
+          .limit(1);
+        if (u[0]) out.push({ userId: r.userId, name: u[0].name || u[0].phone });
+      }
+      return out;
+    }),
 });
 
 export { isBlockedBetween };

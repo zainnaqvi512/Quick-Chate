@@ -1,8 +1,17 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { formatTime } from "@/lib/format";
 import { MediaContent } from "./MediaContent";
 import { QUICK_REACTIONS } from "./reactions";
-import { Check, CheckCheck, Copy, CornerUpLeft, Forward, SmilePlus, Star, Trash2 } from "lucide-react";
+import {
+  Check,
+  CheckCheck,
+  Copy,
+  CornerUpLeft,
+  Forward,
+  SmilePlus,
+  Star,
+  Trash2,
+} from "lucide-react";
 
 export type ChatMessage = {
   id: number;
@@ -13,7 +22,12 @@ export type ChatMessage = {
   content: string | null;
   mediaUrl: string | null;
   mediaMeta: string | null;
-  replyTo: { id: number; content: string | null; type: string; senderId: number } | null;
+  replyTo: {
+    id: number;
+    content: string | null;
+    type: string;
+    senderId: number;
+  } | null;
   deletedForEveryone: boolean;
   createdAt: Date | string;
   mine: boolean;
@@ -24,8 +38,14 @@ export type ChatMessage = {
 
 /** Original Quick Chat read-receipt icon (single/double wing ticks). */
 export function Ticks({ status }: { status?: "sent" | "delivered" | "read" }) {
-  if (status === "read") return <CheckCheck className="h-3.5 w-3.5 text-sky-500" aria-label="Read" />;
-  if (status === "delivered") return <CheckCheck className="h-3.5 w-3.5 opacity-60" aria-label="Delivered" />;
+  if (status === "read")
+    return (
+      <CheckCheck className="h-3.5 w-3.5 text-sky-500" aria-label="Read" />
+    );
+  if (status === "delivered")
+    return (
+      <CheckCheck className="h-3.5 w-3.5 opacity-60" aria-label="Delivered" />
+    );
   return <Check className="h-3.5 w-3.5 opacity-60" aria-label="Sent" />;
 }
 
@@ -46,23 +66,59 @@ export function MessageBubble({
   onDelete: (m: ChatMessage) => void;
   onForward: (m: ChatMessage) => void;
 }) {
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const [offset, setOffset] = useState(0);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
 
-  const reactionGroups = msg.reactions.reduce<Record<string, number>>((acc, r) => {
-    acc[r.emoji] = (acc[r.emoji] || 0) + 1;
-    return acc;
-  }, {});
+  const reactionGroups = msg.reactions.reduce<Record<string, number>>(
+    (acc, r) => {
+      acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+      return acc;
+    },
+    {}
+  );
 
   return (
     <div
       className={`group flex ${msg.mine ? "justify-end" : "justify-start"} px-3 sm:px-6 py-0.5 relative`}
+      style={{ touchAction: "pan-y", transform: `translateX(${offset}px)` }}
+      onPointerDown={e => {
+        if (
+          e.pointerType !== "mouse" &&
+          !(e.target as HTMLElement).closest("button,a,video,audio,input")
+        )
+          swipe.current = { x: e.clientX, y: e.clientY };
+      }}
+      onPointerMove={e => {
+        const start = swipe.current;
+        if (!start) return;
+        const dx = e.clientX - start.x,
+          dy = e.clientY - start.y;
+        if (Math.abs(dy) > 35) {
+          swipe.current = null;
+          setOffset(0);
+          return;
+        }
+        setOffset(Math.max(0, Math.min(dx, 85)));
+      }}
+      onPointerUp={() => {
+        if (offset >= 60 && !msg.deletedForEveryone) onReply(msg);
+        swipe.current = null;
+        setOffset(0);
+      }}
+      onPointerCancel={() => {
+        swipe.current = null;
+        setOffset(0);
+      }}
       onMouseLeave={() => {
         setActionsOpen(false);
         setReactionsOpen(false);
       }}
     >
-      <div className={`relative max-w-[78%] sm:max-w-[65%] ${msg.mine ? "items-end" : "items-start"}`}>
+      <div
+        className={`relative max-w-[78%] sm:max-w-[65%] ${msg.mine ? "items-end" : "items-start"}`}
+      >
         {/* action bar on hover */}
         <div
           className={`absolute top-0 ${msg.mine ? "-left-8" : "-right-8"} opacity-0 group-hover:opacity-100 transition-opacity z-10`}
@@ -70,13 +126,16 @@ export function MessageBubble({
           <button
             aria-label="Message actions"
             className="p-1.5 rounded-full bg-card border shadow-sm text-muted-foreground hover:text-foreground"
-            onClick={() => setActionsOpen((o) => !o)}
+            onClick={() => setActionsOpen(o => !o)}
           >
             <SmilePlus className="h-4 w-4" />
           </button>
           {actionsOpen && (
             <div className="absolute top-9 left-0 bg-popover border rounded-xl shadow-lg p-1 w-40 z-20">
-              <button className="menu-item" onClick={() => setReactionsOpen(true)}>
+              <button
+                className="menu-item"
+                onClick={() => setReactionsOpen(true)}
+              >
                 <SmilePlus className="h-4 w-4" /> React
               </button>
               <button
@@ -115,7 +174,9 @@ export function MessageBubble({
                   setActionsOpen(false);
                 }}
               >
-                <Star className={`h-4 w-4 ${msg.starred ? "fill-amber-400 text-amber-400" : ""}`} />{" "}
+                <Star
+                  className={`h-4 w-4 ${msg.starred ? "fill-amber-400 text-amber-400" : ""}`}
+                />{" "}
                 {msg.starred ? "Unstar" : "Star"}
               </button>
               {msg.mine && (
@@ -133,7 +194,7 @@ export function MessageBubble({
           )}
           {reactionsOpen && (
             <div className="absolute top-9 left-0 bg-popover border rounded-full shadow-lg px-2 py-1 flex gap-1 z-20">
-              {QUICK_REACTIONS.map((e) => (
+              {QUICK_REACTIONS.map(e => (
                 <button
                   key={e}
                   className="text-lg hover:scale-125 transition-transform"
@@ -158,27 +219,46 @@ export function MessageBubble({
           } ${msg.type === "sticker" ? "!bg-transparent !shadow-none !border-0 !px-1" : ""}`}
         >
           {isGroup && !msg.mine && (
-            <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 mb-0.5">{msg.sender.name}</p>
+            <p className="text-xs font-semibold text-sky-600 dark:text-sky-400 mb-0.5">
+              {msg.sender.name}
+            </p>
           )}
           {msg.replyTo && (
             <div
               className={`text-xs rounded-lg px-2 py-1 mb-1 border-l-2 ${
-                msg.mine ? "bg-white/15 border-white/50" : "bg-muted border-sky-400"
+                msg.mine
+                  ? "bg-white/15 border-white/50"
+                  : "bg-muted border-sky-400"
               }`}
             >
               <span className="opacity-70">
-                {msg.replyTo.type === "text" ? msg.replyTo.content : `📎 ${msg.replyTo.type}`}
+                {msg.replyTo.type === "text"
+                  ? msg.replyTo.content
+                  : `📎 ${msg.replyTo.type}`}
               </span>
             </div>
           )}
           {msg.deletedForEveryone ? (
-            <p className="text-sm italic opacity-70">🚫 This message was deleted</p>
+            <p className="text-sm italic opacity-70">
+              🚫 This message was deleted
+            </p>
           ) : (
-            <MediaContent type={msg.type} mediaUrl={msg.mediaUrl} mediaMeta={msg.mediaMeta} content={msg.type === "text" ? msg.content : msg.content} />
+            <MediaContent
+              type={msg.type}
+              mediaUrl={msg.mediaUrl}
+              mediaMeta={msg.mediaMeta}
+              content={msg.type === "text" ? msg.content : msg.content}
+            />
           )}
-          <div className={`flex items-center justify-end gap-1 mt-0.5 ${msg.type === "sticker" ? "bg-card/70 rounded-full px-1.5" : ""}`}>
-            {msg.starred && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
-            <span className={`text-[10px] ${msg.mine ? "text-white/80" : "text-muted-foreground"}`}>
+          <div
+            className={`flex items-center justify-end gap-1 mt-0.5 ${msg.type === "sticker" ? "bg-card/70 rounded-full px-1.5" : ""}`}
+          >
+            {msg.starred && (
+              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+            )}
+            <span
+              className={`text-[10px] ${msg.mine ? "text-white/80" : "text-muted-foreground"}`}
+            >
               {formatTime(msg.createdAt)}
             </span>
             {msg.mine && <Ticks status={msg.status} />}
@@ -186,9 +266,14 @@ export function MessageBubble({
         </div>
 
         {Object.keys(reactionGroups).length > 0 && (
-          <div className={`flex gap-1 mt-1 ${msg.mine ? "justify-end" : "justify-start"}`}>
+          <div
+            className={`flex gap-1 mt-1 ${msg.mine ? "justify-end" : "justify-start"}`}
+          >
             {Object.entries(reactionGroups).map(([emoji, count]) => (
-              <span key={emoji} className="bg-card border rounded-full px-1.5 py-0.5 text-xs shadow-sm">
+              <span
+                key={emoji}
+                className="bg-card border rounded-full px-1.5 py-0.5 text-xs shadow-sm"
+              >
                 {emoji}
                 {count > 1 ? ` ${count}` : ""}
               </span>

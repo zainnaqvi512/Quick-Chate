@@ -7,7 +7,13 @@ import { createRouter } from "./middleware";
 import { authedQuery, sessionQuery, safeUser } from "./auth";
 import { assertOwnedMedia } from "./lib/mediaValidation";
 import { getDb } from "./queries/connection";
-import { blockedUsers, users, contacts, sessions } from "../db/schema";
+import {
+  blockedUsers,
+  users,
+  contacts,
+  sessions,
+  userReports,
+} from "../db/schema";
 
 export const DEFAULT_PRIVACY = {
   lastSeen: "everyone" as "everyone" | "contacts" | "nobody",
@@ -59,6 +65,35 @@ export function publicUser(
 }
 
 export const usersRouter = createRouter({
+  report: authedQuery
+    .input(
+      z.object({
+        userId: z.number().int().positive(),
+        reason: z.string().trim().min(5).max(1000),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.user.id)
+        throw new TRPCError({ code: "BAD_REQUEST" });
+      const db = getDb();
+      const [target] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .limit(1);
+      if (!target) throw new TRPCError({ code: "NOT_FOUND" });
+      await db
+        .insert(userReports)
+        .values({
+          reporterId: ctx.user.id,
+          reportedId: input.userId,
+          reason: input.reason,
+        })
+        .onDuplicateKeyUpdate({
+          set: { reason: input.reason, createdAt: new Date() },
+        });
+      return { ok: true };
+    }),
   me: sessionQuery.query(({ ctx }) => {
     return {
       ...ctx.user,

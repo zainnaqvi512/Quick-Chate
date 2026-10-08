@@ -1,3 +1,4 @@
+import { ContactProfile } from "./ContactProfile";
 import { useState } from "react";
 import { trpc } from "@/providers/trpc";
 import type { Me } from "@/lib/auth";
@@ -17,18 +18,34 @@ export function ChatList({
   activeId: number | null;
   onOpen: (id: number) => void;
 }) {
+  const [profile, setProfile] = useState<number | null>(null);
+  const [favorites, setFavorites] = useState(false);
   const [query, setQuery] = useState("");
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
-  const listQuery = trpc.conversations.list.useQuery(undefined, { refetchInterval: 4000 });
+  const listQuery = trpc.conversations.list.useQuery(undefined, {
+    refetchInterval: 4000,
+  });
   const convs = listQuery.data ?? [];
 
   const filtered = convs
-    .filter((c) => (showArchived ? c.archived : !c.archived))
-    .filter((c) => c.title.toLowerCase().includes(query.toLowerCase()));
+    .filter(c => !favorites || c.favorite)
+    .filter(c => (showArchived ? c.archived : !c.archived))
+    .filter(c => c.title.toLowerCase().includes(query.toLowerCase()));
 
   return (
     <div className="flex flex-col h-full min-h-0">
+      {profile && (
+        <ContactProfile
+          quick
+          conversationId={profile}
+          onClose={() => setProfile(null)}
+          onMessage={() => {
+            onOpen(profile);
+            setProfile(null);
+          }}
+        />
+      )}
       <header className="px-4 pt-4 pb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Logo size={28} />
@@ -49,14 +66,20 @@ export function ChatList({
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={e => setQuery(e.target.value)}
             placeholder="Search chats"
             className="pl-9 bg-muted/60 border-0"
             aria-label="Search chats"
           />
         </div>
       </div>
-      {!showArchived && convs.some((c) => c.archived) && (
+      <button
+        className="mx-4 mb-2 text-sm text-sky-500 text-left"
+        onClick={() => setFavorites(!favorites)}
+      >
+        {favorites ? "Show all chats" : "Favorites"}
+      </button>
+      {!showArchived && convs.some(c => c.archived) && (
         <button
           className="mx-4 mb-1 flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground px-2 py-1"
           onClick={() => setShowArchived(true)}
@@ -73,7 +96,11 @@ export function ChatList({
         </button>
       )}
 
-      <div className="flex-1 overflow-y-auto min-h-0" role="list" aria-label="Conversations">
+      <div
+        className="flex-1 overflow-y-auto min-h-0"
+        role="list"
+        aria-label="Conversations"
+      >
         {listQuery.isLoading &&
           Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 px-4 py-3">
@@ -88,11 +115,13 @@ export function ChatList({
           <div className="flex flex-col items-center justify-center h-2/3 text-center px-6">
             <Logo size={48} />
             <p className="mt-3 text-sm text-muted-foreground">
-              {query ? "No chats match your search." : "No conversations yet. Start a new chat!"}
+              {query
+                ? "No chats match your search."
+                : "No conversations yet. Start a new chat!"}
             </p>
           </div>
         )}
-        {filtered.map((c) => {
+        {filtered.map(c => {
           const countdown = expiryCountdown(c.expiresAt);
           const other = c.otherUser;
           const online = other?.lastSeenAt ? isOnline(other.lastSeenAt) : false;
@@ -105,14 +134,40 @@ export function ChatList({
                 activeId === c.id ? "bg-accent" : ""
               }`}
             >
-              <Avatar name={c.title} url={c.avatarUrl} size={46} online={c.type === "direct" ? online : undefined} />
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={`Open ${c.title} profile`}
+                onClick={e => {
+                  e.stopPropagation();
+                  setProfile(c.id);
+                }}
+                onKeyDown={e => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setProfile(c.id);
+                  }
+                }}
+              >
+                <Avatar
+                  name={c.title}
+                  url={c.avatarUrl}
+                  size={46}
+                  online={c.type === "direct" ? online : undefined}
+                />
+              </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-medium truncate flex items-center gap-1">
-                    {c.pinned && <Pin className="h-3 w-3 text-sky-500 shrink-0" />}
+                    {c.pinned && (
+                      <Pin className="h-3 w-3 text-sky-500 shrink-0" />
+                    )}
                     {c.title}
                     {c.type === "group" && (
-                      <span className="text-[10px] font-normal text-muted-foreground border rounded px-1">Group</span>
+                      <span className="text-[10px] font-normal text-muted-foreground border rounded px-1">
+                        Group
+                      </span>
                     )}
                   </span>
                   {c.lastMessage && (
@@ -155,7 +210,11 @@ export function ChatList({
       <div className="px-4 py-2 border-t text-[11px] text-muted-foreground">
         Signed in as {me.name} · {me.phone}
       </div>
-      <NewChatDialog open={newChatOpen} onClose={() => setNewChatOpen(false)} onOpen={onOpen} />
+      <NewChatDialog
+        open={newChatOpen}
+        onClose={() => setNewChatOpen(false)}
+        onOpen={onOpen}
+      />
     </div>
   );
 }
