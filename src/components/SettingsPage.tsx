@@ -47,7 +47,16 @@ function PrivacyRow({
   );
 }
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  RINGTONES,
+  selectedRingtone,
+  startCallTone,
+  unlockCallAudio,
+  type Ringtone,
+} from "@/lib/callSounds";
+import { HelpAndInvite } from "./HelpAndInvite";
+import { useSearchParams, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth, type Me } from "@/lib/auth";
 import { Avatar } from "@/components/Logo";
@@ -80,6 +89,8 @@ type Sub =
   | "appearance"
   | "security"
   | "starred"
+  | "help"
+  | "invite"
   | "about";
 
 export function SettingsPage({
@@ -90,8 +101,31 @@ export function SettingsPage({
   onUpdated: () => void;
 }) {
   const { logout, theme, setTheme } = useAuth();
-  const [sub, setSub] = useState<Sub>(null);
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const sub = params.get("settings") as Sub;
+  const setSub = (value: Sub) => {
+    if (!value && window.history.state?.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    setParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set("settings", value);
+      else next.delete("settings");
+      return next;
+    });
+  };
   const logoutMut = trpc.auth.logout.useMutation({ onSettled: () => logout() });
+  if (sub === "help" || sub === "invite")
+    return (
+      <SubPage
+        title={sub === "help" ? "Help & feedback" : "Invite a friend"}
+        onBack={() => setSub(null)}
+      >
+        <HelpAndInvite mode={sub} />
+      </SubPage>
+    );
 
   if (sub === "profile")
     return (
@@ -233,6 +267,18 @@ export function SettingsPage({
           "About",
           "Version, terms, privacy policy",
           () => setSub("about")
+        )}
+        {item(
+          <User className="h-5 w-5" />,
+          "Invite a friend",
+          "Share Quick Chat for any device",
+          () => setSub("invite")
+        )}
+        {item(
+          <ShieldCheck className="h-5 w-5" />,
+          "Help & feedback",
+          "Troubleshooting and report a problem",
+          () => setSub("help")
         )}
         <div className="my-2 border-t" />
         <button
@@ -402,6 +448,36 @@ function PrivacySettings({ me, onBack }: { me: Me; onBack: () => void }) {
       <PrivacyRow p={p} save={save} label="Last seen & online" k="lastSeen" />
       <PrivacyRow p={p} save={save} label="Profile photo" k="avatar" />
       <PrivacyRow p={p} save={save} label="About" k="about" />
+      <label className="block p-3 border rounded-xl text-sm">
+        Who can find me by username?
+        <select
+          aria-label="Who can find me by username"
+          className="mt-2 w-full border rounded bg-background p-2"
+          value={p.usernameSearch ?? "everyone"}
+          onChange={e =>
+            save({
+              ...p,
+              usernameSearch: e.target.value as NonNullable<
+                Me["privacy"]["usernameSearch"]
+              >,
+            })
+          }
+        >
+          <option value="everyone">Everyone</option>
+          <option value="friends_of_friends">Friends of friends</option>
+          <option value="nobody">No one</option>
+        </select>
+        <span className="block text-xs text-muted-foreground mt-2">
+          Applies to people outside your mutual contacts. Friends of friends
+          must share a mutual contact. People who enter your exact phone number
+          can still find you. Blocked users cannot.
+        </span>
+      </label>
+      {update.error && (
+        <p role="alert" className="text-sm text-destructive">
+          {update.error.message}
+        </p>
+      )}
       <div className="flex items-center justify-between gap-3 p-3 border rounded-xl">
         <span className="text-sm font-medium">Read receipts</span>
         <Switch
@@ -436,6 +512,16 @@ function PrivacySettings({ me, onBack }: { me: Me; onBack: () => void }) {
 }
 
 function NotifySettings({ me, onBack }: { me: Me; onBack: () => void }) {
+  const [ringtone, setRingtone] = useState(selectedRingtone);
+  const stopPreview = useRef<(() => void) | null>(null);
+  const previewTimer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      stopPreview.current?.();
+      clearTimeout(previewTimer.current);
+    },
+    []
+  );
   const [n, setN] = useState(me.notifySettings);
   const update = trpc.users.updateNotify.useMutation();
   function save(next: typeof n) {
@@ -445,6 +531,44 @@ function NotifySettings({ me, onBack }: { me: Me; onBack: () => void }) {
 
   return (
     <SubPage title="Notifications" onBack={onBack}>
+      <label className="block text-sm">
+        Incoming ringtone (this device)
+        <select
+          aria-label="Incoming ringtone"
+          className="block w-full mt-2 p-2 border rounded bg-background"
+          value={ringtone}
+          onChange={e => {
+            const next = e.target.value as Ringtone;
+            setRingtone(next);
+            localStorage.setItem("quickchat.ringtone", next);
+          }}
+        >
+          {RINGTONES.map(t => (
+            <option key={t} value={t}>
+              {t[0].toUpperCase() + t.slice(1)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Button
+        variant="outline"
+        onClick={() => {
+          stopPreview.current?.();
+          clearTimeout(previewTimer.current);
+          unlockCallAudio();
+          stopPreview.current = startCallTone(ringtone);
+          previewTimer.current = window.setTimeout(
+            () => stopPreview.current?.(),
+            2600
+          );
+        }}
+      >
+        Preview ringtone
+      </Button>
+      <p className="text-xs text-muted-foreground">
+        Browser ringtones require an interaction with the app and may be muted
+        when the page is closed or the phone is locked.
+      </p>
       <NotifyRow n={n} save={save} label="Message notifications" k="messages" />
       <NotifyRow n={n} save={save} label="Group notifications" k="groups" />
       <NotifyRow n={n} save={save} label="Call notifications" k="calls" />

@@ -1,7 +1,8 @@
 import { TRPCError } from "@trpc/server";
 import { contactLookup } from "./contactLookup";
 import { z } from "zod";
-import { and, eq, ne, or } from "drizzle-orm";
+import { and, eq, ne, or, sql } from "drizzle-orm";
+import { canDiscoverUsername, type UsernameDiscovery } from "./discovery";
 import { createRouter } from "./middleware";
 import { authedQuery, sessionQuery, safeUser } from "./auth";
 import { assertOwnedMedia } from "./lib/mediaValidation";
@@ -13,6 +14,7 @@ export const DEFAULT_PRIVACY = {
   avatar: "everyone" as "everyone" | "contacts" | "nobody",
   about: "everyone" as "everyone" | "contacts" | "nobody",
   readReceipts: true,
+  usernameSearch: "everyone" as UsernameDiscovery,
 };
 export const DEFAULT_NOTIFY = {
   messages: true,
@@ -115,6 +117,9 @@ export const usersRouter = createRouter({
         avatar: z.enum(["everyone", "contacts", "nobody"]),
         about: z.enum(["everyone", "contacts", "nobody"]),
         readReceipts: z.boolean(),
+        usernameSearch: z
+          .enum(["everyone", "friends_of_friends", "nobody"])
+          .default("everyone"),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -244,6 +249,30 @@ export async function searchExactUsers(
       )
       .limit(1);
     if (blocked.length) continue;
+    if ("username" in identity) {
+      const [relationship] = await db
+        .select({
+          direct: sql<number>`EXISTS (SELECT 1 FROM contacts a JOIN contacts b ON b.owner_id = a.contact_user_id AND b.contact_user_id = a.owner_id WHERE a.owner_id = ${viewerId} AND a.contact_user_id = ${u.id})`,
+          mutual: sql<number>`EXISTS (SELECT 1 FROM contacts a
+          JOIN contacts b ON b.owner_id = a.contact_user_id AND b.contact_user_id = a.owner_id
+          JOIN contacts c ON c.owner_id = a.contact_user_id AND c.contact_user_id = ${u.id}
+          JOIN contacts d ON d.owner_id = c.contact_user_id AND d.contact_user_id = c.owner_id
+          WHERE a.owner_id = ${viewerId} AND a.contact_user_id NOT IN (${viewerId}, ${u.id})
+          AND NOT EXISTS (SELECT 1 FROM blocked_users bl WHERE
+            (bl.blocker_id = a.contact_user_id AND bl.blocked_id IN (${viewerId}, ${u.id})) OR
+            (bl.blocked_id = a.contact_user_id AND bl.blocker_id IN (${viewerId}, ${u.id}))))`,
+        })
+        .from(users)
+        .where(eq(users.id, viewerId));
+      if (
+        !canDiscoverUsername(
+          parsePrivacy(u.privacy).usernameSearch,
+          Boolean(relationship?.direct),
+          Boolean(relationship?.mutual)
+        )
+      )
+        continue;
+    }
     const contact = await db
       .select()
       .from(contacts)

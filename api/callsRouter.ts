@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { getIceConfig } from "./iceConfig";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt, ne, or, sql } from "drizzle-orm";
@@ -29,30 +29,7 @@ function assertParty(call: typeof calls.$inferSelect, userId: number) {
 }
 
 export const callsRouter = createRouter({
-  iceConfig: authedQuery.query(({ ctx }) => {
-    const iceServers: {
-      urls: string;
-      username?: string;
-      credential?: string;
-    }[] = [];
-    if (process.env.STUN_URL) iceServers.push({ urls: process.env.STUN_URL });
-    if (process.env.TURN_URL && process.env.TURN_SHARED_SECRET) {
-      const username = `${Math.floor(Date.now() / 1000) + 600}:${ctx.user.id}`;
-      iceServers.push({
-        urls: process.env.TURN_URL,
-        username,
-        credential: createHmac("sha1", process.env.TURN_SHARED_SECRET)
-          .update(username)
-          .digest("base64"),
-      });
-    }
-    return {
-      iceServers,
-      relayConfigured: Boolean(
-        process.env.TURN_URL && process.env.TURN_SHARED_SECRET
-      ),
-    };
-  }),
+  iceConfig: authedQuery.query(({ ctx }) => getIceConfig(ctx.user.id)),
   /** Caller creates the call with its WebRTC offer SDP. */
   start: authedQuery
     .input(

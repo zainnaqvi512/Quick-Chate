@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { EmojiPicker, StickersPanel } from "./EmojiPicker";
+import { AttachmentPreview } from "./AttachmentPreview";
 import { fileToBase64 } from "@/lib/format";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Camera,
   Contact as ContactIcon,
@@ -43,6 +48,9 @@ export function Composer({
   const [recSeconds, setRecSeconds] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const sendingFiles = useRef(false);
+  const gifRequest = useRef(0);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -58,21 +66,33 @@ export function Composer({
       utils.conversations.list.invalidate();
       onSent?.();
     },
-    onError: (e) => setError(e.message),
+    onError: e => setError(e.message),
   });
   const upload = trpc.media.upload.useMutation();
 
   useEffect(() => {
     if (!recording) return;
-    const t = setInterval(() => setRecSeconds(Math.floor((Date.now() - recStartRef.current) / 1000)), 250);
+    const t = setInterval(
+      () =>
+        setRecSeconds(Math.floor((Date.now() - recStartRef.current) / 1000)),
+      250
+    );
     return () => clearInterval(t);
   }, [recording]);
 
   type MessageType = Parameters<typeof send.mutate>[0]["type"];
 
-  function doSend(type: MessageType, payload: { content?: string; mediaUrl?: string; mediaMeta?: string }) {
+  function doSend(
+    type: MessageType,
+    payload: { content?: string; mediaUrl?: string; mediaMeta?: string }
+  ) {
     setError("");
-    send.mutate({ conversationId, type, replyToId: replyToId ?? undefined, ...payload });
+    send.mutate({
+      conversationId,
+      type,
+      replyToId: replyToId ?? undefined,
+      ...payload,
+    });
   }
 
   function submitText() {
@@ -82,12 +102,24 @@ export function Composer({
     doSend("text", { content: t });
   }
 
-  async function handleFiles(files: FileList | null) {
+  function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
+    const selected = Array.from(files).slice(0, 10);
+    if (selected.some(f => f.size > 15 * 1024 * 1024 || f.size === 0)) {
+      setError("Choose files between 1 byte and 15 MB.");
+      return;
+    }
+    setError("");
+    setPendingFiles(selected);
+  }
+
+  async function confirmFiles(viewOnce: boolean, caption: string) {
+    if (sendingFiles.current) return;
+    sendingFiles.current = true;
     setUploading(true);
     setError("");
     try {
-      for (const file of Array.from(files).slice(0, 10)) {
+      for (const file of pendingFiles) {
         if (file.size > 15 * 1024 * 1024) {
           setError(`"${file.name}" exceeds the 15 MB limit`);
           continue;
@@ -99,18 +131,30 @@ export function Composer({
           contentType: file.type || "application/octet-stream",
         });
         let type: MessageType = "document";
-        if (file.type.startsWith("image/")) type = "image";
+        if (file.type === "image/gif") type = "gif";
+        else if (file.type.startsWith("image/")) type = "image";
         else if (file.type.startsWith("video/")) type = "video";
         else if (file.type.startsWith("audio/")) type = "audio";
-        doSend(type, {
+        await send.mutateAsync({
+          conversationId,
+          type,
+          viewOnce: viewOnce && type !== "gif",
+          content: caption || undefined,
+          replyToId: replyToId ?? undefined,
           mediaUrl: res.key,
-          mediaMeta: JSON.stringify({ name: file.name, size: file.size, mime: file.type }),
+          mediaMeta: JSON.stringify({
+            name: file.name,
+            size: file.size,
+            mime: file.type,
+          }),
         });
+        setPendingFiles(current => current.filter(item => item !== file));
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
+      sendingFiles.current = false;
     }
   }
 
@@ -119,26 +163,25 @@ export function Composer({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
       chunksRef.current = [];
-      rec.ondataavailable = (e) => chunksRef.current.push(e.data);
+      rec.ondataavailable = e => chunksRef.current.push(e.data);
       rec.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, {
+          type: rec.mimeType || "audio/webm",
+        });
         const duration = Math.round((Date.now() - recStartRef.current) / 1000);
         if (duration < 1) return;
-        setUploading(true);
-        try {
-          const base64 = await fileToBase64(blob);
-          const res = await upload.mutateAsync({
-            name: `voice-${Date.now()}.webm`,
-            contentBase64: base64,
-            contentType: blob.type,
-          });
-          doSend("audio", { mediaUrl: res.key, mediaMeta: JSON.stringify({ duration, mime: blob.type, size: blob.size }) });
-        } catch (e) {
-          setError(e instanceof Error ? e.message : "Voice upload failed");
-        } finally {
-          setUploading(false);
+        if (blob.size > 15 * 1024 * 1024) {
+          setError("Recording exceeds 15 MB. Record a shorter message.");
+          return;
         }
+        setPendingFiles([
+          new File(
+            [blob],
+            `voice-${Date.now()}.${blob.type.includes("mp4") ? "m4a" : "webm"}`,
+            { type: blob.type }
+          ),
+        ]);
       };
       recorderRef.current = rec;
       recStartRef.current = Date.now();
@@ -153,7 +196,7 @@ export function Composer({
     const rec = recorderRef.current;
     if (!rec) return;
     if (cancel) {
-      rec.onstop = () => rec.stream.getTracks().forEach((t) => t.stop());
+      rec.onstop = () => rec.stream.getTracks().forEach(t => t.stop());
       rec.stop();
     } else {
       rec.stop();
@@ -162,23 +205,43 @@ export function Composer({
   }
 
   async function searchGifs(q: string) {
-    if (!GIPHY_KEY) return;
+    const request = ++gifRequest.current;
+    const builtIn = ["Hello", "LOL", "Thanks", "Wow", "Yes", "No"]
+      .filter(name => name.toLowerCase().includes(q.toLowerCase()))
+      .map(name => ({ id: name, url: `/gifs/${name.toLowerCase()}.gif` }));
+    if (!GIPHY_KEY) {
+      setGifs(builtIn);
+      return;
+    }
     setGifLoading(true);
     try {
       const res = await fetch(
-        `https://api.giphy.com/v1/gifs/${q ? "search" : "trending"}?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=18&rating=g`,
+        `https://api.giphy.com/v1/gifs/${q ? "search" : "trending"}?api_key=${GIPHY_KEY}&q=${encodeURIComponent(q)}&limit=18&rating=g`
       );
       const data = await res.json();
+      if (!res.ok) throw new Error("GIF search unavailable");
+      if (request !== gifRequest.current) return;
       setGifs(
-        (data.data || []).map((g: { id: string; images: { fixed_height_small?: { url: string }; original: { url: string } } }) => ({
-          id: g.id,
-          url: g.images?.fixed_height_small?.url || g.images?.original?.url,
-        })),
+        (data.data || []).map(
+          (g: {
+            id: string;
+            images: {
+              fixed_height_small?: { url: string };
+              original: { url: string };
+            };
+          }) => ({
+            id: g.id,
+            url: g.images?.fixed_height_small?.url || g.images?.original?.url,
+          })
+        )
       );
     } catch {
-      setGifs([]);
+      if (request === gifRequest.current) {
+        setGifs(builtIn);
+        setError("Online GIF search is unavailable. Showing built-in GIFs.");
+      }
     } finally {
-      setGifLoading(false);
+      if (request === gifRequest.current) setGifLoading(false);
     }
   }
 
@@ -189,13 +252,16 @@ export function Composer({
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
+      pos => {
         doSend("location", {
-          mediaMeta: JSON.stringify({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          mediaMeta: JSON.stringify({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+          }),
         });
       },
       () => setError("Location permission denied"),
-      { timeout: 10000 },
+      { timeout: 10000 }
     );
   }
 
@@ -203,8 +269,23 @@ export function Composer({
 
   return (
     <div className="border-t bg-card px-2 sm:px-4 py-2">
+      {pendingFiles.length > 0 && (
+        <AttachmentPreview
+          files={pendingFiles}
+          busy={uploading}
+          error={error}
+          onCancel={() => {
+            setPendingFiles([]);
+            setError("");
+          }}
+          onSend={(once, caption) => void confirmFiles(once, caption)}
+        />
+      )}
       {error && (
-        <div className="text-xs text-destructive px-2 pb-1 flex items-center gap-2" role="alert">
+        <div
+          className="text-xs text-destructive px-2 pb-1 flex items-center gap-2"
+          role="alert"
+        >
           {error}
           <button onClick={() => setError("")} aria-label="Dismiss error">
             <X className="h-3 w-3" />
@@ -215,9 +296,12 @@ export function Composer({
         <div className="flex items-center gap-3 py-1.5 px-2">
           <span className="h-3 w-3 rounded-full bg-red-500 animate-pulse" />
           <span className="text-sm font-mono">
-            {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, "0")}
+            {Math.floor(recSeconds / 60)}:
+            {String(recSeconds % 60).padStart(2, "0")}
           </span>
-          <span className="text-sm text-muted-foreground flex-1">Recording…</span>
+          <span className="text-sm text-muted-foreground flex-1">
+            Recording…
+          </span>
           <button
             className="p-2 rounded-full hover:bg-accent text-muted-foreground"
             onClick={() => stopRecording(true)}
@@ -228,7 +312,7 @@ export function Composer({
           <button
             className="p-2.5 rounded-full bg-sky-500 text-white hover:bg-sky-600"
             onClick={() => stopRecording(false)}
-            aria-label="Send voice message"
+            aria-label="Preview voice message"
           >
             <Send className="h-5 w-5" />
           </button>
@@ -238,85 +322,148 @@ export function Composer({
           {/* Emoji */}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="p-2.5 rounded-full hover:bg-accent text-muted-foreground" aria-label="Emoji">
+              <button
+                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+                aria-label="Emoji"
+              >
                 <Smile className="h-5 w-5" />
               </button>
             </PopoverTrigger>
             <PopoverContent className="p-0 w-auto" align="start" side="top">
-              <EmojiPicker onPick={(e) => setText((t) => t + e)} />
+              <EmojiPicker onPick={e => setText(t => t + e)} />
             </PopoverContent>
           </Popover>
 
           {/* Stickers */}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="p-2.5 rounded-full hover:bg-accent text-muted-foreground" aria-label="Stickers">
+              <button
+                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+                aria-label="Stickers"
+              >
                 <Sticker className="h-5 w-5" />
               </button>
             </PopoverTrigger>
             <PopoverContent className="p-0 w-auto" align="start" side="top">
-              <StickersPanel onPick={(s) => doSend("sticker", { content: s, mediaUrl: undefined, mediaMeta: JSON.stringify({ sticker: s }) })} />
+              <StickersPanel
+                onPick={s =>
+                  doSend("sticker", {
+                    content: s,
+                    mediaUrl: undefined,
+                    mediaMeta: JSON.stringify({ sticker: s }),
+                  })
+                }
+              />
             </PopoverContent>
           </Popover>
 
           {/* GIF */}
           <Popover
             open={gifOpen}
-            onOpenChange={(o) => {
+            onOpenChange={o => {
               setGifOpen(o);
               if (o) searchGifs("");
             }}
           >
             <PopoverTrigger asChild>
-              <button className="p-2.5 rounded-full hover:bg-accent text-muted-foreground" aria-label="GIF">
-                <span className="text-[10px] font-bold border rounded px-1">GIF</span>
+              <button
+                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+                aria-label="GIF"
+              >
+                <span className="text-[10px] font-bold border rounded px-1">
+                  GIF
+                </span>
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-80" align="start" side="top">
-              {GIPHY_KEY ? (
-                <>
-                  <input
-                    className="w-full rounded-md border px-3 py-1.5 text-sm mb-2 bg-background"
-                    placeholder="Search GIFs"
-                    value={gifQuery}
-                    onChange={(e) => {
-                      setGifQuery(e.target.value);
-                      searchGifs(e.target.value);
-                    }}
-                    aria-label="Search GIFs"
-                  />
-                  {gifLoading ? (
-                    <div className="flex justify-center py-6">
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
-                      {gifs.map((g) => (
-                        <button
-                          key={g.id}
-                          onClick={() => {
-                            doSend("gif", { mediaUrl: g.url });
+            <PopoverContent
+              className="w-80 max-w-[calc(100vw-24px)] max-h-[65dvh] overflow-y-auto"
+              align="start"
+              side="top"
+            >
+              <>
+                <input
+                  className="w-full rounded-md border px-3 py-1.5 text-sm mb-2 bg-background"
+                  placeholder="Search GIFs"
+                  value={gifQuery}
+                  onChange={e => {
+                    setGifQuery(e.target.value);
+                    searchGifs(e.target.value);
+                  }}
+                  aria-label="Search GIFs"
+                />
+                {gifLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
+                    {gifs.map(g => (
+                      <button
+                        key={g.id}
+                        disabled={uploading}
+                        onClick={async () => {
+                          setUploading(true);
+                          setError("");
+                          try {
+                            const response = await fetch(g.url, {
+                              signal: AbortSignal.timeout(15000),
+                            });
+                            if (!response.ok)
+                              throw new Error(
+                                "GIF could not be loaded. Try a different GIF."
+                              );
+                            const blob = await response.blob();
+                            if (blob.size > 15 * 1024 * 1024)
+                              throw new Error("GIF exceeds the 15 MB limit.");
+                            setPendingFiles([
+                              new File([blob], `${g.id}.gif`, {
+                                type: "image/gif",
+                              }),
+                            ]);
                             setGifOpen(false);
-                          }}
-                        >
-                          <img src={g.url} alt="GIF" className="rounded w-full h-20 object-cover" loading="lazy" />
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground p-2">
-                  GIF search is not configured. Set <code>VITE_GIPHY_API_KEY</code> to enable GIPHY.
-                </p>
-              )}
+                          } catch (e) {
+                            setError(
+                              e instanceof Error
+                                ? e.message
+                                : "GIF failed to load"
+                            );
+                          } finally {
+                            setUploading(false);
+                          }
+                        }}
+                      >
+                        <img
+                          src={g.url}
+                          alt="GIF"
+                          className="rounded w-full h-20 object-cover"
+                          loading="lazy"
+                        />
+                      </button>
+                    ))}
+                    {gifs.length === 0 && (
+                      <p className="col-span-3 p-3 text-sm">
+                        No GIFs found. Try another word or attach a GIF from
+                        your device.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </>
+              <p className="text-xs text-muted-foreground mt-2">
+                {GIPHY_KEY
+                  ? "Powered by GIPHY"
+                  : "Quick Chat GIFs · Search Hello, LOL, Thanks, Wow, Yes or No"}
+              </p>
             </PopoverContent>
           </Popover>
 
           {/* Attachments */}
           <Popover open={attachOpen} onOpenChange={setAttachOpen}>
             <PopoverTrigger asChild>
-              <button className="p-2.5 rounded-full hover:bg-accent text-muted-foreground" aria-label="Attach">
+              <button
+                className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+                aria-label="Attach"
+              >
                 <Paperclip className="h-5 w-5" />
               </button>
             </PopoverTrigger>
@@ -325,6 +472,10 @@ export function Composer({
                 className="menu-item"
                 onClick={() => {
                   acceptRef.current = "image/*,video/*";
+                  fileInputRef.current?.setAttribute(
+                    "accept",
+                    acceptRef.current
+                  );
                   fileInputRef.current?.click();
                   setAttachOpen(false);
                 }}
@@ -335,6 +486,10 @@ export function Composer({
                 className="menu-item"
                 onClick={() => {
                   acceptRef.current = "image/*";
+                  fileInputRef.current?.setAttribute(
+                    "accept",
+                    acceptRef.current
+                  );
                   fileInputRef.current?.setAttribute("capture", "environment");
                   fileInputRef.current?.click();
                   setAttachOpen(false);
@@ -345,7 +500,12 @@ export function Composer({
               <button
                 className="menu-item"
                 onClick={() => {
-                  acceptRef.current = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,application/*";
+                  acceptRef.current =
+                    ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,application/*";
+                  fileInputRef.current?.setAttribute(
+                    "accept",
+                    acceptRef.current
+                  );
                   fileInputRef.current?.click();
                   setAttachOpen(false);
                 }}
@@ -360,12 +520,17 @@ export function Composer({
                   <p className="text-[11px] text-muted-foreground px-2 pb-1 flex items-center gap-1">
                     <ContactIcon className="h-3 w-3" /> Share contact
                   </p>
-                  {contactList.slice(0, 5).map((c) => (
+                  {contactList.slice(0, 5).map(c => (
                     <button
                       key={c.userId}
                       className="menu-item"
                       onClick={() => {
-                        doSend("contact", { mediaMeta: JSON.stringify({ name: c.name, phone: c.phone }) });
+                        doSend("contact", {
+                          mediaMeta: JSON.stringify({
+                            name: c.name,
+                            phone: c.phone,
+                          }),
+                        });
                         setAttachOpen(false);
                       }}
                     >
@@ -382,7 +547,7 @@ export function Composer({
             type="file"
             multiple
             className="hidden"
-            onChange={(e) => {
+            onChange={e => {
               handleFiles(e.target.files);
               e.target.value = "";
               fileInputRef.current?.removeAttribute("capture");
@@ -391,14 +556,14 @@ export function Composer({
 
           <textarea
             value={text}
-            onChange={(e) => {
+            onChange={e => {
               setText(e.target.value);
               if (Date.now() - typingThrottle.current > 2500) {
                 typingThrottle.current = Date.now();
                 onTyping();
               }
             }}
-            onKeyDown={(e) => {
+            onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 submitText();

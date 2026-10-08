@@ -6,7 +6,7 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 export function setToken(token: string | null) {
-  window.dispatchEvent(new Event('quickchat-account-change'));
+  window.dispatchEvent(new Event("quickchat-account-change"));
   if (token) localStorage.setItem(TOKEN_KEY, token);
   else localStorage.removeItem(TOKEN_KEY);
 }
@@ -20,8 +20,19 @@ export type Me = {
   about: string;
   avatarUrl: string | null;
   profileComplete: boolean;
-  privacy: { lastSeen: "everyone" | "contacts" | "nobody"; avatar: "everyone" | "contacts" | "nobody"; about: "everyone" | "contacts" | "nobody"; readReceipts: boolean };
-  notifySettings: { messages: boolean; groups: boolean; calls: boolean; sounds: boolean };
+  privacy: {
+    lastSeen: "everyone" | "contacts" | "nobody";
+    avatar: "everyone" | "contacts" | "nobody";
+    about: "everyone" | "contacts" | "nobody";
+    readReceipts: boolean;
+    usernameSearch?: "everyone" | "friends_of_friends" | "nobody";
+  };
+  notifySettings: {
+    messages: boolean;
+    groups: boolean;
+    calls: boolean;
+    sounds: boolean;
+  };
 };
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -41,7 +52,6 @@ export const Ctx = createContext<AuthCtx>({
   theme: "system",
   setTheme: () => {},
 });
-
 
 export function useAuth() {
   return useContext(Ctx);

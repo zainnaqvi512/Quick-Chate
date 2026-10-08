@@ -60,3 +60,19 @@ Railway deployment `975d7e5e-12cd-4781-ab61-d15b3f83f6b7` succeeded and is pinne
 - No end-to-end message encryption, complete account recovery/migration, multi-device sync, group calls or live voice-to-video upgrade.
 - Polling remains the signaling/message transport. This is an upgraded preview, not WhatsApp feature parity.
 - Global availability depends on internet access, SMS delivery, device support and regional restrictions.
+
+## Messaging and mobile usability update (2026-10-08)
+
+- Voice calls show audio controls only; camera toggles/flip are video-only.
+- Tabs, chats and settings pages are URL/history-backed. Android back uses application history and stays on the root screen. Browser back can still leave the site from the root. Back navigation minimizes an active call without ending it. Only one responsive layout is mounted, avoiding duplicate polling/composers.
+- Photo, video, audio recording and document attachments enter a review screen before upload/send. Supported image/video/audio/text formats preview inline; other documents show filename/type/size. Failed batch sending retains unsent files. View once is selectable per photo/video; the existing atomic recipient receipt prevents reopening, forwarding and regular media downloads. Server cleanup deletes inaccessible attachments asynchronously (minute cadence); screenshots/recordings cannot be prevented.
+- Six original built-in animated GIFs work without an API key. Optional GIPHY search still uses VITE_GIPHY_API_KEY. GIFs now pass through owned uploads instead of sending rejected external URLs. Search failures and empty results are visible.
+- Incoming and outgoing synthesized call tones stop when ringing ends. Three incoming tones are selectable per device under Notifications. Browser autoplay restrictions require interaction; no background push/CallKit or closed-app ringing is implemented.
+- Username discovery offers everyone, friends of friends, or nobody outside mutual contacts. Friends-of-friends requires reciprocal contact edges through an intermediary, with blocking honored. Exact phone lookup is unaffected. This is enforced in both search endpoints. Contacts do not imply independently verified knowledge of a phone number.
+- Help includes troubleshooting and a copy-feedback/public GitHub issue flow. No private support inbox is provisioned. Invite links use /invite and show appropriate browser/home-screen instructions. Signed native/desktop installers and store links are not available; regional accessibility cannot be guaranteed.
+
+### Relay activation still required
+
+The backend supports Cloudflare Realtime TURN via CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN, stored only as Railway server variables. The owner must create the TURN key in their Cloudflare account and place the values in the existing quick-chat-preview service; do not paste long-lived tokens into chat or client variables. Calls request one-hour credentials and cache them briefly per user. The provider token is never returned. coturn TURN_URL + TURN_SHARED_SECRET remains supported (comma-separated endpoints). Cloudflare STUN is the default, but STUN alone is not a relay. A missing/failed TURN provider leaves the relay warning visible.
+
+Cloudflare advertises a 1,000 GB shared monthly Realtime egress free tier; paid overage/account terms must be reviewed in its dashboard. No Cloudflare account/key has been provisioned and no forced-relay device test has been performed. After configuration, verify calls between Wi-Fi and mobile data and test with iceTransportPolicy=relay in a dedicated diagnostic client.

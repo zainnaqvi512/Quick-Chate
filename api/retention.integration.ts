@@ -143,6 +143,94 @@ async function caller(userId: number) {
 }
 
 describe("Phone-required access and exact contact search", () => {
+  it("enforces username discovery while preserving exact phone lookup", async () => {
+    const client = await caller(sender);
+    try {
+      await db
+        .update(schema.users)
+        .set({ privacy: JSON.stringify({ usernameSearch: "nobody" }) })
+        .where(eq(schema.users.id, recipient));
+      expect(
+        await client.users.search({ query: "recipient_test" })
+      ).toHaveLength(0);
+      expect(
+        (await client.messages.search({ query: "recipient_test" })).users
+      ).toHaveLength(0);
+      expect(await client.users.search({ query: "+12025550102" })).toHaveLength(
+        1
+      );
+      await db
+        .update(schema.users)
+        .set({
+          privacy: JSON.stringify({ usernameSearch: "friends_of_friends" }),
+        })
+        .where(eq(schema.users.id, recipient));
+      await db.insert(schema.contacts).values([
+        { ownerId: sender, contactUserId: other },
+        { ownerId: other, contactUserId: recipient },
+      ]);
+      expect(
+        await client.users.search({ query: "recipient_test" })
+      ).toHaveLength(0);
+      await db.insert(schema.contacts).values([
+        { ownerId: other, contactUserId: sender },
+        { ownerId: recipient, contactUserId: other },
+      ]);
+      expect(
+        await client.users.search({ query: "recipient_test" })
+      ).toHaveLength(1);
+    } finally {
+      await db
+        .update(schema.users)
+        .set({ privacy: null })
+        .where(eq(schema.users.id, recipient));
+      await db.delete(schema.contacts);
+    }
+  });
+  it("sends an individual view-once photo without changing the chat timer and rejects reopening", async () => {
+    const { conversationId } = await fixture("24h");
+    const owner = await caller(sender),
+      viewer = await caller(recipient);
+    const media = await owner.media.upload({
+      name: "test.gif",
+      contentType: "image/gif",
+      contentBase64: "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+    });
+    const sent = await owner.messages.send({
+      conversationId,
+      type: "image",
+      mediaUrl: media.key,
+      viewOnce: true,
+    });
+    const [row] = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, sent.id));
+    expect(row.expirationMode).toBe("after_view");
+    const first = await viewer.messages.reveal({ messageId: sent.id });
+    expect(first.attachment?.contentType).toBe("image/gif");
+    await expect(
+      viewer.messages.reveal({ messageId: sent.id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const normal = await owner.messages.send({
+      conversationId,
+      type: "text",
+      content: "regular",
+    });
+    const [normalRow] = await db
+      .select()
+      .from(schema.messages)
+      .where(eq(schema.messages.id, normal.id));
+    expect(normalRow.expirationMode).toBe("24h");
+    await expect(
+      owner.messages.send({
+        conversationId,
+        type: "text",
+        content: "invalid",
+        viewOnce: true,
+      })
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
   it("denies email-only sessions access to chats and calls but permits phone migration", async () => {
     const [{ id }] = await db
       .insert(schema.users)
@@ -219,16 +307,14 @@ describe("MySQL retention and authorization", () => {
     expect(attempts.filter(r => r.status === "rejected")).toHaveLength(1);
     const id = successful[0].value.id;
     try {
-      await db
-        .insert(schema.callSignals)
-        .values(
-          Array.from({ length: 105 }, () => ({
-            callId: id,
-            fromUserId: sender,
-            kind: "candidate",
-            payload: "{}",
-          }))
-        );
+      await db.insert(schema.callSignals).values(
+        Array.from({ length: 105 }, () => ({
+          callId: id,
+          fromUserId: sender,
+          kind: "candidate",
+          payload: "{}",
+        }))
+      );
       await b.calls.signal({
         callId: id,
         kind: "control",

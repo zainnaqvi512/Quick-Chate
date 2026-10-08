@@ -1,5 +1,10 @@
 import { Ctx, type Peer } from "./context";
 import {
+  selectedRingtone,
+  startCallTone,
+  unlockCallAudio,
+} from "@/lib/callSounds";
+import {
   useCallback,
   useEffect,
   useRef,
@@ -81,15 +86,42 @@ function Control({
   );
 }
 
-export function CallManager({ children }: { me: Me; children: ReactNode }) {
+export function CallManager({ children, me }: { me: Me; children: ReactNode }) {
   const [call, setCall] = useState<ActiveCall | null>(null);
   const [incoming, setIncoming] = useState<Incoming | null>(null);
+  useEffect(() => {
+    const unlock = () => unlockCallAudio();
+    document.addEventListener("pointerdown", unlock);
+    document.addEventListener("keydown", unlock);
+    return () => {
+      document.removeEventListener("pointerdown", unlock);
+      document.removeEventListener("keydown", unlock);
+    };
+  }, []);
+  const tone = me.notifySettings.sounds
+    ? incoming && !call && me.notifySettings.calls
+      ? "incoming"
+      : call?.status === "ringing"
+        ? "outgoing"
+        : null
+    : null;
+  useEffect(() => {
+    if (!tone) return;
+    return startCallTone(tone === "incoming" ? selectedRingtone() : "outgoing");
+  }, [tone]);
   const [busy, setBusy] = useState(false);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
   const [held, setHeld] = useState(false);
   const [peerHeld, setPeerHeld] = useState(false);
   const [minimized, setMinimized] = useState(false);
+  useEffect(() => {
+    const back = () => {
+      if (callRef.current) setMinimized(true);
+    };
+    window.addEventListener("popstate", back);
+    return () => window.removeEventListener("popstate", back);
+  }, []);
   const [sharing, setSharing] = useState(false);
   const [duration, setDuration] = useState(0);
   const [netState, setNetState] = useState("connecting");
@@ -849,20 +881,15 @@ export function CallManager({ children }: { me: Me; children: ReactNode }) {
                 >
                   {audio.route === "speaker" ? <Volume2 /> : <Headphones />}
                 </Control>
-                <Control
-                  label={
-                    call.type === "video"
-                      ? cameraOff
-                        ? "Camera on"
-                        : "Camera off"
-                      : "Video call"
-                  }
-                  disabled={call.type !== "video"}
-                  active={cameraOff}
-                  onClick={toggleCamera}
-                >
-                  {cameraOff ? <VideoOff /> : <Video />}
-                </Control>
+                {call.type === "video" && (
+                  <Control
+                    label={cameraOff ? "Camera on" : "Camera off"}
+                    active={cameraOff}
+                    onClick={toggleCamera}
+                  >
+                    {cameraOff ? <VideoOff /> : <Video />}
+                  </Control>
+                )}
                 <Control
                   label={muted ? "Unmute" : "Mute"}
                   active={muted}
@@ -878,13 +905,15 @@ export function CallManager({ children }: { me: Me; children: ReactNode }) {
                 >
                   {held ? <Play /> : <Pause />}
                 </Control>
-                <Control
-                  label="Flip camera"
-                  disabled={call.type !== "video" || busy || sharing}
-                  onClick={() => void flipCamera()}
-                >
-                  <SwitchCamera />
-                </Control>
+                {call.type === "video" && (
+                  <Control
+                    label="Flip camera"
+                    disabled={call.type !== "video" || busy || sharing}
+                    onClick={() => void flipCamera()}
+                  >
+                    <SwitchCamera />
+                  </Control>
+                )}
                 <Control label="End" danger onClick={hangUp}>
                   <PhoneOff />
                 </Control>

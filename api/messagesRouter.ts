@@ -265,11 +265,22 @@ export const messagesRouter = createRouter({
         mediaMeta: z.string().max(4000).optional(),
         replyToId: z.number().optional(),
         forwardFromId: z.number().int().positive().optional(),
+        viewOnce: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
       let retentionDeadline = retentionDeadlineForSend();
+      if (
+        input.viewOnce &&
+        (!["image", "video"].includes(input.type) ||
+          !input.mediaUrl ||
+          input.forwardFromId)
+      )
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "View once is available for new photos and videos only.",
+        });
       if (input.forwardFromId) {
         const source = await getVisibleMessage(
           input.forwardFromId,
@@ -402,7 +413,7 @@ export const messagesRouter = createRouter({
           mediaUrl: input.mediaUrl ?? null,
           mediaMeta: input.mediaMeta ?? null,
           replyToId: input.replyToId ?? null,
-          expirationMode: conv.expirationMode,
+          expirationMode: input.viewOnce ? "after_view" : conv.expirationMode,
           retentionDeadline,
         });
         const id = Number(
@@ -450,13 +461,11 @@ export const messagesRouter = createRouter({
           .delete(messageReactions)
           .where(eq(messageReactions.id, existing[0].id));
       } else {
-        await db
-          .insert(messageReactions)
-          .values({
-            messageId: input.messageId,
-            userId: ctx.user.id,
-            emoji: input.emoji,
-          });
+        await db.insert(messageReactions).values({
+          messageId: input.messageId,
+          userId: ctx.user.id,
+          emoji: input.emoji,
+        });
       }
       return { ok: true };
     }),

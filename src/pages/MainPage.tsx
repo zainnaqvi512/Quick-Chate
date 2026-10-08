@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { useAuth, type Me } from "@/lib/auth";
 import { Logo, Avatar } from "@/components/Logo";
@@ -97,8 +98,30 @@ function ProfileSetup({ me, onDone }: { me: Me; onDone: () => void }) {
 
 export default function MainPage() {
   const { logout } = useAuth();
-  const [section, setSection] = useState<Section>("chats");
-  const [activeConv, setActiveConv] = useState<number | null>(null);
+  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const section = NAV.some(n => n.id === params.get("tab"))
+    ? (params.get("tab") as Section)
+    : "chats";
+  const rawConv = Number(params.get("chat"));
+  const activeConv =
+    Number.isSafeInteger(rawConv) && rawConv > 0 ? rawConv : null;
+  const setSection = (tab: Section) => {
+    if (tab !== section) setParams({ tab });
+  };
+  const closeConversation = () => {
+    if (window.history.state?.idx > 0) navigate(-1);
+    else setParams({ tab: "chats" }, { replace: true });
+  };
+  const [isWide, setIsWide] = useState(
+    () => window.matchMedia("(min-width: 768px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const change = () => setIsWide(mq.matches);
+    mq.addEventListener("change", change);
+    return () => mq.removeEventListener("change", change);
+  }, []);
 
   const meQuery = trpc.users.me.useQuery(undefined, {
     refetchInterval: 30_000,
@@ -112,10 +135,12 @@ export default function MainPage() {
     if (meQuery.error?.data?.code === "UNAUTHORIZED") logout();
   }, [meQuery.error, logout]);
 
-  const openConversation = useCallback((id: number) => {
-    setActiveConv(id);
-    setSection("chats");
-  }, []);
+  const openConversation = useCallback(
+    (id: number) => {
+      setParams({ tab: "chats", chat: String(id) });
+    },
+    [setParams]
+  );
 
   if (meQuery.isLoading) {
     return (
@@ -191,7 +216,7 @@ export default function MainPage() {
             key={activeConv}
             me={me}
             conversationId={activeConv}
-            onClose={() => setActiveConv(null)}
+            onClose={closeConversation}
           />
         ) : (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-center p-8 chat-bg">
@@ -218,7 +243,7 @@ export default function MainPage() {
             key={activeConv}
             me={me}
             conversationId={activeConv}
-            onClose={() => setActiveConv(null)}
+            onClose={closeConversation}
           />
         ) : (
           <>
@@ -265,10 +290,5 @@ export default function MainPage() {
     </div>
   );
 
-  return (
-    <CallManager me={me}>
-      {wide}
-      {mobile}
-    </CallManager>
-  );
+  return <CallManager me={me}>{isWide ? wide : mobile}</CallManager>;
 }
