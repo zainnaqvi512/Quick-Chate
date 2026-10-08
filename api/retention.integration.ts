@@ -35,6 +35,9 @@ vi.mock("./lib/storage", async importOriginal => {
     ...original,
     storage: {
       ...original.storage,
+      uploadFile: original.storage.uploadFile.bind(original.storage),
+      headFile: original.storage.headFile.bind(original.storage),
+      readFile: original.storage.readFile.bind(original.storage),
       deleteFile: vi.fn(async () => true),
       listFiles: vi.fn(async () => ({ objects: [] })),
     },
