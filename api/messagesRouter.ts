@@ -1,7 +1,7 @@
 import { updateChatViewing } from "./retention";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like, lt, notInArray, or } from "drizzle-orm";
 import { createRouter } from "./middleware";
 import { authedQuery } from "./auth";
 import { getDb } from "./queries/connection";
@@ -45,11 +45,12 @@ async function shapeMessages(
   convId: number,
   meId: number,
   limit: number,
-  beforeId?: number
+  beforeId?: number,
+  selectedRows?: (typeof messages.$inferSelect)[]
 ) {
   const db = getDb();
   const rows = (
-    await getVisibleMessages(convId, meId, limit, beforeId)
+    selectedRows ?? (await getVisibleMessages(convId, meId, limit, beforeId))
   ).reverse();
   const msgIds = rows.map(m => m.id);
   const reactions =
@@ -190,6 +191,51 @@ async function shapeMessages(
 }
 
 export const messagesRouter = createRouter({
+  library: authedQuery
+    .input(
+      z.object({
+        conversationId: z.number().int(),
+        category: z.enum(["media", "documents", "links"]),
+        cursor: z.number().int().optional(),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      if (!(await getParticipant(input.conversationId, ctx.user.id)))
+        throw new TRPCError({ code: "FORBIDDEN" });
+      const rows = await getDb()
+        .select()
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, input.conversationId),
+            visibleMessagePredicate(ctx.user.id),
+            notInArray(messages.expirationMode, ["after_view", "after_chat"]),
+            input.cursor ? lt(messages.id, input.cursor) : undefined,
+            input.category === "documents"
+              ? eq(messages.type, "document")
+              : input.category === "media"
+                ? inArray(messages.type, ["image", "video", "gif", "audio"])
+                : or(
+                    like(messages.content, "%https://%"),
+                    like(messages.content, "%http://%")
+                  )
+          )
+        )
+        .orderBy(desc(messages.id))
+        .limit(49);
+      const more = rows.length > 48;
+      const page = rows.slice(0, 48);
+      const cursor = more ? page[page.length - 1].id : undefined;
+      const items = await shapeMessages(
+        input.conversationId,
+        ctx.user.id,
+        48,
+        undefined,
+        page
+      );
+      return { items: items.reverse(), nextCursor: cursor };
+    }),
+
   chatViewing: authedQuery
     .input(z.object({ conversationId: z.number(), leaving: z.boolean() }))
     .mutation(async ({ ctx, input }) => {

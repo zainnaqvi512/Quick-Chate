@@ -572,3 +572,89 @@ describe("MySQL retention and authorization", () => {
     await expect(runCleanupOnce()).resolves.toBeUndefined();
   });
 });
+
+describe("Chat media library", () => {
+  it("separates categories, paginates older files and denies non-members", async () => {
+    const { conversationId } = await fixture("never");
+    const ids = await db
+      .insert(schema.messages)
+      .values(
+        Array.from({ length: 50 }, (_, i) => ({
+          conversationId,
+          senderId: sender,
+          type: "document" as const,
+          content: `file ${i}`,
+          expirationMode: "never",
+          retentionDeadline: retentionDeadlineForSend(),
+        }))
+      )
+      .$returningId();
+    for (const { id } of ids) await createRecipientSnapshot(id, [recipient]);
+    const viewer = await caller(recipient);
+    const first = await viewer.messages.library({
+      conversationId,
+      category: "documents",
+    });
+    expect(first.items).toHaveLength(48);
+    const second = await viewer.messages.library({
+      conversationId,
+      category: "documents",
+      cursor: first.nextCursor,
+    });
+    expect(second.items).toHaveLength(2);
+    expect(new Set([...first.items, ...second.items].map(m => m.id)).size).toBe(
+      50
+    );
+    expect(
+      (await viewer.messages.library({ conversationId, category: "media" }))
+        .items
+    ).toEqual([]);
+    const outsider = await caller(other);
+    await expect(
+      outsider.messages.library({ conversationId, category: "documents" })
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+  it("excludes view-once, expired and cleared content from links", async () => {
+    const { id, conversationId } = await fixture("24h");
+    await db
+      .update(schema.messages)
+      .set({ content: "https://example.com/shared" })
+      .where(eq(schema.messages.id, id));
+    const viewer = await caller(recipient);
+    expect(
+      (
+        await viewer.messages.library({ conversationId, category: "links" })
+      ).items.map(m => m.id)
+    ).toEqual([id]);
+    for (const mode of ["after_view", "after_chat"]) {
+      await db
+        .update(schema.messages)
+        .set({ expirationMode: mode })
+        .where(eq(schema.messages.id, id));
+      expect(
+        (await viewer.messages.library({ conversationId, category: "links" }))
+          .items
+      ).toEqual([]);
+    }
+    await db
+      .update(schema.messages)
+      .set({
+        expirationMode: "24h",
+        retentionDeadline: new Date(Date.now() - 1000),
+      })
+      .where(eq(schema.messages.id, id));
+    expect(
+      (await viewer.messages.library({ conversationId, category: "links" }))
+        .items
+    ).toEqual([]);
+    await db
+      .update(schema.messages)
+      .set({ expirationMode: "never" })
+      .where(eq(schema.messages.id, id));
+    await viewer.conversations.clear({ id: conversationId });
+    expect(
+      (await viewer.messages.library({ conversationId, category: "links" }))
+        .items
+    ).toEqual([]);
+  });
+});

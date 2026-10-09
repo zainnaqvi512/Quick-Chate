@@ -207,7 +207,7 @@ export function Composer({
   const contactList = contacts;
 
   return (
-    <div className="border-t bg-card px-2 sm:px-4 py-2">
+    <div className="shrink-0 border-t bg-card px-2 sm:px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {pendingFiles.length > 0 && (
         <AttachmentPreview
           files={pendingFiles}
@@ -244,129 +244,132 @@ export function Composer({
           </PopoverTrigger>
           <PopoverContent className="p-0 w-auto" align="start" side="top">
             <EmojiPicker onPick={e => setText(t => t + e)} />
-          </PopoverContent>
-        </Popover>
-
-        {/* Stickers */}
-        <Popover>
-          <PopoverTrigger asChild>
-            <button
-              className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
-              aria-label="Stickers"
-            >
-              <Sticker className="h-5 w-5" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="p-0 w-auto" align="start" side="top">
-            <StickersPanel
-              onPick={s =>
-                doSend("sticker", {
-                  content: s,
-                  mediaUrl: undefined,
-                  mediaMeta: JSON.stringify({ sticker: s }),
-                })
-              }
-            />
-          </PopoverContent>
-        </Popover>
-
-        {/* GIF */}
-        <Popover
-          open={gifOpen}
-          onOpenChange={o => {
-            setGifOpen(o);
-            if (o) searchGifs("");
-          }}
-        >
-          <PopoverTrigger asChild>
-            <button
-              className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
-              aria-label="GIF"
-            >
-              <span className="text-[10px] font-bold border rounded px-1">
-                GIF
-              </span>
-            </button>
-          </PopoverTrigger>
-          <PopoverContent
-            className="w-80 max-w-[calc(100vw-24px)] max-h-[65dvh] overflow-y-auto"
-            align="start"
-            side="top"
-          >
-            <>
-              <input
-                className="w-full rounded-md border px-3 py-1.5 text-sm mb-2 bg-background"
-                placeholder="Search GIFs"
-                value={gifQuery}
-                onChange={e => {
-                  setGifQuery(e.target.value);
-                  searchGifs(e.target.value);
+            <div className="flex items-center border-t">
+              {" "}
+              {/* Stickers */}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+                    aria-label="Stickers"
+                  >
+                    <Sticker className="h-5 w-5" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-auto" align="start" side="top">
+                  <StickersPanel
+                    onPick={s =>
+                      doSend("sticker", {
+                        content: s,
+                        mediaUrl: undefined,
+                        mediaMeta: JSON.stringify({ sticker: s }),
+                      })
+                    }
+                  />
+                </PopoverContent>
+              </Popover>
+              {/* GIF */}
+              <Popover
+                open={gifOpen}
+                onOpenChange={o => {
+                  setGifOpen(o);
+                  if (o) searchGifs("");
                 }}
-                aria-label="Search GIFs"
-              />
-              {gifLoading ? (
-                <div className="flex justify-center py-6">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
-                  {gifs.map(g => (
-                    <button
-                      key={g.id}
-                      disabled={uploading}
-                      onClick={async () => {
-                        setUploading(true);
-                        setError("");
-                        try {
-                          const response = await fetch(g.url, {
-                            signal: AbortSignal.timeout(15000),
-                          });
-                          if (!response.ok)
-                            throw new Error(
-                              "GIF could not be loaded. Try a different GIF."
-                            );
-                          const blob = await response.blob();
-                          if (blob.size > 15 * 1024 * 1024)
-                            throw new Error("GIF exceeds the 15 MB limit.");
-                          setPendingFiles([
-                            new File([blob], `${g.id}.gif`, {
-                              type: "image/gif",
-                            }),
-                          ]);
-                          setGifOpen(false);
-                        } catch (e) {
-                          setError(
-                            e instanceof Error
-                              ? e.message
-                              : "GIF failed to load"
-                          );
-                        } finally {
-                          setUploading(false);
-                        }
+              >
+                <PopoverTrigger asChild>
+                  <button
+                    className="p-2.5 rounded-full hover:bg-accent text-muted-foreground"
+                    aria-label="GIF"
+                  >
+                    <span className="text-[10px] font-bold border rounded px-1">
+                      GIF
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-80 max-w-[calc(100vw-24px)] max-h-[65dvh] overflow-y-auto"
+                  align="start"
+                  side="top"
+                >
+                  <>
+                    <input
+                      className="w-full rounded-md border px-3 py-1.5 text-sm mb-2 bg-background"
+                      placeholder="Search GIFs"
+                      value={gifQuery}
+                      onChange={e => {
+                        setGifQuery(e.target.value);
+                        searchGifs(e.target.value);
                       }}
-                    >
-                      <img
-                        src={g.url}
-                        alt="GIF"
-                        className="rounded w-full h-20 object-cover"
-                        loading="lazy"
-                      />
-                    </button>
-                  ))}
-                  {gifs.length === 0 && (
-                    <p className="col-span-3 p-3 text-sm">
-                      No GIFs found. Try another word or attach a GIF from your
-                      device.
-                    </p>
-                  )}
-                </div>
-              )}
-            </>
-            <p className="text-xs text-muted-foreground mt-2">
-              {GIPHY_KEY
-                ? "Powered by GIPHY"
-                : "Quick Chat GIFs · Search Hello, LOL, Thanks, Wow, Yes or No"}
-            </p>
+                      aria-label="Search GIFs"
+                    />
+                    {gifLoading ? (
+                      <div className="flex justify-center py-6">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1 max-h-64 overflow-y-auto">
+                        {gifs.map(g => (
+                          <button
+                            key={g.id}
+                            disabled={uploading}
+                            onClick={async () => {
+                              setUploading(true);
+                              setError("");
+                              try {
+                                const response = await fetch(g.url, {
+                                  signal: AbortSignal.timeout(15000),
+                                });
+                                if (!response.ok)
+                                  throw new Error(
+                                    "GIF could not be loaded. Try a different GIF."
+                                  );
+                                const blob = await response.blob();
+                                if (blob.size > 15 * 1024 * 1024)
+                                  throw new Error(
+                                    "GIF exceeds the 15 MB limit."
+                                  );
+                                setPendingFiles([
+                                  new File([blob], `${g.id}.gif`, {
+                                    type: "image/gif",
+                                  }),
+                                ]);
+                                setGifOpen(false);
+                              } catch (e) {
+                                setError(
+                                  e instanceof Error
+                                    ? e.message
+                                    : "GIF failed to load"
+                                );
+                              } finally {
+                                setUploading(false);
+                              }
+                            }}
+                          >
+                            <img
+                              src={g.url}
+                              alt="GIF"
+                              className="rounded w-full h-20 object-cover"
+                              loading="lazy"
+                            />
+                          </button>
+                        ))}
+                        {gifs.length === 0 && (
+                          <p className="col-span-3 p-3 text-sm">
+                            No GIFs found. Try another word or attach a GIF from
+                            your device.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    {GIPHY_KEY
+                      ? "Powered by GIPHY"
+                      : "Quick Chat GIFs · Search Hello, LOL, Thanks, Wow, Yes or No"}
+                  </p>
+                </PopoverContent>
+              </Popover>
+            </div>
           </PopoverContent>
         </Popover>
 
@@ -476,7 +479,7 @@ export function Composer({
           placeholder="Type a message"
           rows={1}
           aria-label="Message input"
-          className="flex-1 resize-none rounded-2xl border bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 max-h-32"
+          className="flex-1 min-w-0 min-h-12 resize-none rounded-2xl border bg-background px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-sky-500 max-h-32"
         />
 
         {uploading ? (

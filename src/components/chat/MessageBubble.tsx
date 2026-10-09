@@ -66,7 +66,7 @@ export function MessageBubble({
   onDelete: (m: ChatMessage) => void;
   onForward: (m: ChatMessage) => void;
 }) {
-  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const swipe = useRef<{ x: number; y: number; delta: number } | null>(null);
   const [offset, setOffset] = useState(0);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reactionsOpen, setReactionsOpen] = useState(false);
@@ -88,7 +88,7 @@ export function MessageBubble({
           e.pointerType !== "mouse" &&
           !(e.target as HTMLElement).closest("button,a,video,audio,input")
         )
-          swipe.current = { x: e.clientX, y: e.clientY };
+          swipe.current = { x: e.clientX, y: e.clientY, delta: 0 };
       }}
       onPointerMove={e => {
         const start = swipe.current;
@@ -100,10 +100,15 @@ export function MessageBubble({
           setOffset(0);
           return;
         }
-        setOffset(Math.max(0, Math.min(dx, 85)));
+        start.delta = Math.max(-85, Math.min(dx, 85));
+        setOffset(start.delta);
       }}
       onPointerUp={() => {
-        if (offset >= 60 && !msg.deletedForEveryone) onReply(msg);
+        if (
+          Math.abs(swipe.current?.delta ?? 0) >= 60 &&
+          !msg.deletedForEveryone
+        )
+          onReply(msg);
         swipe.current = null;
         setOffset(0);
       }}

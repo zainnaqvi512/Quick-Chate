@@ -7,7 +7,7 @@ import { ChatList } from "@/components/chat/ChatList";
 import { ChatWindow } from "@/components/chat/ChatWindow";
 import { StatusPage } from "@/components/StatusPage";
 import { CallsPage } from "@/components/CallsPage";
-import { ContactsPage } from "@/components/ContactsPage";
+import { useChatViewport } from "@/lib/useChatViewport";
 import { SettingsPage } from "@/components/SettingsPage";
 import { PhoneSignIn } from "@/components/PhoneSignIn";
 import { CallManager } from "@/components/call/CallManager";
@@ -17,18 +17,16 @@ import {
   MessageCircle,
   Phone,
   Sparkles,
-  Users,
   Settings as SettingsIcon,
   Loader2,
 } from "lucide-react";
 
-export type Section = "chats" | "status" | "calls" | "contacts" | "settings";
+export type Section = "chats" | "status" | "calls" | "settings";
 
 const NAV: { id: Section; label: string; icon: typeof MessageCircle }[] = [
   { id: "chats", label: "Chats", icon: MessageCircle },
   { id: "status", label: "Status", icon: Sparkles },
   { id: "calls", label: "Calls", icon: Phone },
-  { id: "contacts", label: "Contacts", icon: Users },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ];
 
@@ -98,6 +96,7 @@ function ProfileSetup({ me, onDone }: { me: Me; onDone: () => void }) {
 
 export default function MainPage() {
   const { logout } = useAuth();
+  const viewport = useChatViewport();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const section = NAV.some(n => n.id === params.get("tab"))
@@ -167,7 +166,7 @@ export default function MainPage() {
     return <ProfileSetup me={me} onDone={() => meQuery.refetch()} />;
 
   const wide = (
-    <div className="hidden md:flex h-dvh">
+    <div className="hidden md:flex h-full overflow-hidden">
       {/* Rail nav */}
       <nav
         className="w-16 border-r bg-card flex flex-col items-center py-4 gap-1"
@@ -202,9 +201,6 @@ export default function MainPage() {
         )}
         {section === "status" && <StatusPage me={me} />}
         {section === "calls" && <CallsPage onOpenChat={openConversation} />}
-        {section === "contacts" && (
-          <ContactsPage onOpenChat={openConversation} />
-        )}
         {section === "settings" && (
           <SettingsPage me={me} onUpdated={() => meQuery.refetch()} />
         )}
@@ -236,7 +232,7 @@ export default function MainPage() {
   );
 
   const mobile = (
-    <div className="md:hidden h-dvh flex flex-col">
+    <div className="md:hidden h-full flex flex-col overflow-hidden">
       <div className="flex-1 min-h-0">
         {activeConv && section === "chats" ? (
           <ChatWindow
@@ -256,9 +252,6 @@ export default function MainPage() {
             )}
             {section === "status" && <StatusPage me={me} />}
             {section === "calls" && <CallsPage onOpenChat={openConversation} />}
-            {section === "contacts" && (
-              <ContactsPage onOpenChat={openConversation} />
-            )}
             {section === "settings" && (
               <SettingsPage me={me} onUpdated={() => meQuery.refetch()} />
             )}
@@ -290,5 +283,9 @@ export default function MainPage() {
     </div>
   );
 
-  return <CallManager me={me}>{isWide ? wide : mobile}</CallManager>;
+  return (
+    <div style={viewport} className="fixed left-0 right-0 overflow-hidden">
+      <CallManager me={me}>{isWide ? wide : mobile}</CallManager>
+    </div>
+  );
 }

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { usePrivateMedia } from "@/lib/media";
-import { MediaContent } from "./MediaContent";
+import { ChatMediaBrowser } from "./ChatMediaBrowser";
 import { toast } from "sonner";
 import { Phone, Video, MessageCircle, Heart, Info } from "lucide-react";
 export function ContactProfile({
@@ -32,10 +32,6 @@ export function ContactProfile({
   const q = trpc.conversations.get.useQuery({ id: conversationId });
   const c = q.data;
   const u = c?.otherUser;
-  const items = trpc.messages.list.useQuery(
-    { conversationId },
-    { enabled: media, refetchInterval: 3000 }
-  );
   const utils = trpc.useUtils(),
     call = useCall();
   const avatar = usePrivateMedia(c?.avatarUrl);
@@ -121,6 +117,13 @@ export function ContactProfile({
       )}
     </div>
   );
+  if (media)
+    return (
+      <ChatMediaBrowser
+        conversationId={conversationId}
+        onClose={() => setMedia(false)}
+      />
+    );
   return (
     <Dialog
       open
@@ -179,34 +182,9 @@ export function ContactProfile({
                     className="w-full text-left"
                     onClick={() => setMedia(!media)}
                   >
-                    Media and documents <span className="float-right">›</span>
+                    Media, documents and links{" "}
+                    <span className="float-right">›</span>
                   </button>
-                  {media && (
-                    <div className="space-y-3 max-h-64 overflow-auto">
-                      <p className="text-xs text-muted-foreground">
-                        Attachments in the latest 50 accessible messages.
-                        Expired and view-once media are excluded.
-                      </p>
-                      {(items.data?.messages ?? [])
-                        .filter(
-                          m =>
-                            m.mediaUrl &&
-                            !["after_view", "after_chat"].includes(
-                              m.expirationMode
-                            )
-                        )
-                        .map(m => (
-                          <div className="border rounded-lg p-2" key={m.id}>
-                            <MediaContent
-                              type={m.type}
-                              mediaUrl={m.mediaUrl}
-                              mediaMeta={m.mediaMeta}
-                              content={m.content}
-                            />
-                          </div>
-                        ))}
-                    </div>
-                  )}
                   <label className="flex justify-between">
                     Notifications
                     <input

@@ -110,12 +110,6 @@ export function ChatWindow({
   const reveal = trpc.messages.reveal.useMutation({
     onError: error => toast.error(error.message),
   });
-  const expiration = trpc.conversations.setExpiration.useMutation({
-    onSuccess: () => {
-      convQuery.refetch();
-      utils.conversations.list.invalidate();
-    },
-  });
   useEffect(() => {
     const data = msgsQuery.data?.messages ?? [];
     const incoming = data.filter(m => !m.mine);
@@ -231,7 +225,8 @@ export function ChatWindow({
   useEffect(() => {
     if (messages.length !== lastCountRef.current) {
       lastCountRef.current = messages.length;
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      const pane = messageAreaRef.current;
+      pane?.scrollTo({ top: pane.scrollHeight, behavior: "smooth" });
     }
   }, [messages.length]);
 
@@ -282,7 +277,7 @@ export function ChatWindow({
         />
       )}
       {/* Header */}
-      <header className="flex items-center gap-2 sm:gap-3 px-2 sm:px-4 py-2.5 border-b bg-card">
+      <header className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 min-h-16 py-3 shrink-0 border-b bg-card">
         <button
           className="md:hidden p-2 -ml-1"
           onClick={onClose}
@@ -425,47 +420,6 @@ export function ChatWindow({
         </div>
       </header>
 
-      <div className="px-4 py-2 border-b bg-sky-50 dark:bg-sky-950 text-xs flex flex-wrap gap-2 items-center">
-        <label htmlFor="message-timer">Disappear after recipient views:</label>
-        <select
-          id="message-timer"
-          className="bg-background rounded border px-2 py-1"
-          value={conv.expirationMode}
-          disabled={
-            expiration.isPending ||
-            (conv.type === "group" && conv.myRole === "member")
-          }
-          onChange={e =>
-            expiration.mutate({
-              id: conversationId,
-              mode: e.target.value as
-                "24h" | "12h" | "1h" | "after_chat" | "never",
-            })
-          }
-        >
-          <option value="24h">24 hours</option>
-          <option value="12h">12 hours</option>
-          <option value="1h">1 hour</option>
-          <option value="after_chat">View once · leave chat</option>
-          <option value="never">Never disappear</option>
-          {conv.expirationMode === "after_view" && (
-            <option value="after_view">Legacy single-open</option>
-          )}
-        </select>
-        <span className="text-muted-foreground">
-          New messages only. View once clears viewed messages on
-          leaving/backgrounding; connection loss clears them within 45 seconds.
-          Never keeps messages until deleted. Other unread messages expire after
-          7 days.
-        </span>
-      </div>
-      {/* Countdown strip (mobile) */}
-      {!expired && countdown && (
-        <div className="sm:hidden text-center text-[11px] py-1 bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 flex items-center justify-center gap-1">
-          <TimerOff className="h-3 w-3" /> {countdown}
-        </div>
-      )}
-
       {/* Messages */}
       {expired ? (
         <div className="flex-1 flex flex-col items-center justify-center gap-3 chat-bg p-8 text-center">
@@ -482,7 +436,7 @@ export function ChatWindow({
       ) : (
         <div
           ref={messageAreaRef}
-          className="flex-1 overflow-y-auto py-3 chat-bg min-h-0"
+          className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain py-3 chat-bg min-h-0"
           aria-live="polite"
         >
           {msgsQuery.isLoading && (
@@ -638,7 +592,7 @@ export function ChatWindow({
       </Dialog>
       {/* Reply preview */}
       {replyTo && !expired && (
-        <div className="flex items-center gap-2 px-4 py-2 border-t bg-card">
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2 border-t bg-card">
           <div className="flex-1 border-l-2 border-sky-500 pl-2 min-w-0">
             <p className="text-xs font-medium text-sky-600 dark:text-sky-400">
               {replyTo.sender.name}
